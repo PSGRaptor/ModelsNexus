@@ -1,4 +1,5 @@
-﻿Microsoft Visual Studio Solution File, Format Version 12.00
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.9.34630.192
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -7,6 +8,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ModelsNexus.Scanner.Cli", "src\ModelsNexus.Scanner.Cli\ModelsNexus.Scanner.Cli.csproj", "{B2B2F3BB-2222-4B4D-BBBB-222222222222}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ModelsNexus.Tests", "tests\ModelsNexus.Tests\ModelsNexus.Tests.csproj", "{C3C3F4CC-3333-4C4E-CCCC-333333333333}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ModelsNexus.Infrastructure", "src\ModelsNexus.Infrastructure\ModelsNexus.Infrastructure.csproj", "{D4D4F5DD-4444-4D4F-DDDD-444444444444}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -18,15 +21,23 @@ Global
 		{A1A1E2AA-1111-4A4C-AAAA-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1A1E2AA-1111-4A4C-AAAA-111111111111}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1A1E2AA-1111-4A4C-AAAA-111111111111}.Release|Any CPU.Build.0 = Release|Any CPU
-
 		{B2B2F3BB-2222-4B4D-BBBB-222222222222}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{B2B2F3BB-2222-4B4D-BBBB-222222222222}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B2B2F3BB-2222-4B4D-BBBB-222222222222}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B2B2F3BB-2222-4B4D-BBBB-222222222222}.Release|Any CPU.Build.0 = Release|Any CPU
-
 		{C3C3F4CC-3333-4C4E-CCCC-333333333333}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{C3C3F4CC-3333-4C4E-CCCC-333333333333}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C3C3F4CC-3333-4C4E-CCCC-333333333333}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C3C3F4CC-3333-4C4E-CCCC-333333333333}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4D4F5DD-4444-4D4F-DDDD-444444444444}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4D4F5DD-4444-4D4F-DDDD-444444444444}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4D4F5DD-4444-4D4F-DDDD-444444444444}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4D4F5DD-4444-4D4F-DDDD-444444444444}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7BE63215-2249-47C8-8E84-5FB60F962831}
 	EndGlobalSection
 EndGlobal
