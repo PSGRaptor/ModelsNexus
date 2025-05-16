@@ -1,0 +1,9 @@
+﻿# ── IDE & build artefacts ─────────────────────────────
+.vs/
+*.user
+*.suo
+*.sln.docstates
+
+# ── Build outputs ─────────────────────────────────────
+bin/
+obj/
