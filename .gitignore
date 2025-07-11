@@ -1,0 +1,93 @@
+```gitignore
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.pnpm-debug.log*
+
+# Build outputs
+/dist/
+build/
+out/
+release/
+*.exe
+*.dmg
+*.app
+*.deb
+*.rpm
+*.snap
+*.msi
+
+# Electron
+/.webpack/
+.cache/
+.electron/
+electron-out/
+squirrel*
+/coverage/
+/tmp/
+*.pid
+
+# Environment
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# OS / Editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Database (auto-generated, not pushed)
+db/*.db
+
+# User data
+images/*
+!images/.gitkeep
+config/user-settings.json
+
+# Test reports
+/coverage/
+test-results.xml
+*.lcov
+
+# Misc
+*.log
+logs/
+*.orig
+
+# Build configs (optional, keep if generic)
+*.njsproj
+*.sln
+*.user
+
+# Installer outputs
+*.nupkg
+*.blockmap
+
+# Lock files (if not needed)
+.pnpm-lock.yaml
+
+# Misc (if present)
+npm-debug.log*
+yarn-error.log*
+
+# Mac specific
+.AppleDouble
+.LSOverride
+
+# Windows specific
+ehthumbs.db
+Desktop.ini
+
+# Linux specific
+*~
