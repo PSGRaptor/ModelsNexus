@@ -1,42 +1,88 @@
+// renderer/src/components/ModelDetailsModal.tsx
+
 import React, { useEffect, useState } from 'react';
 
-/**
- * ModelDetailsModal Component
- * Shows detailed info, images, prompts, tags, notes for selected model
- * Props:
- *   modelHash: string (unique hash for model)
- *   onClose: () => void
- */
-const ModelDetailsModal: React.FC<{
+type ModelDetailsModalProps = {
     modelHash: string;
     onClose: () => void;
-}> = ({ modelHash, onClose }) => {
-    // Placeholder for demo—fetch model details and images by modelHash in real app
-    const model = {
-        file_name: 'anything-v4.5.safetensors',
-        model_type: 'SD1',
-        version: '4.5',
-        base_model: 'Anything',
-        file_path: 'F:/_AI-Models/anything-v4.5.safetensors',
-        hash: modelHash,
-        images: [
-            // Up to 25 per model; placeholder
-            { path: '/images/abc123/1.png', meta: '{}' },
-            { path: '/images/abc123/2.png', meta: '{}' },
-        ],
-        tags: ['portrait', 'anime'],
-        userNotes: 'Performs best with portrait prompts.',
-        civitai_url: 'https://civitai.com/models/abc123',
+};
+
+const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClose }) => {
+    // Main model info (replace placeholders with real DB fetch if desired)
+    const [model, setModel] = useState<{
+        file_name?: string;
+        model_type?: string;
+        version?: string;
+        base_model?: string;
+        file_path?: string;
+        civitai_url?: string;
+        huggingface_url?: string;
+    }>({
+        file_name: '',
+        model_type: '',
+        version: '',
+        base_model: '',
+        file_path: '',
+        civitai_url: '',
         huggingface_url: '',
-    };
+    });
 
+    // User notes and tags
+    const [userNote, setUserNote] = useState('');
+    const [tags, setTags] = useState<string[]>([]);
+    const [newTag, setNewTag] = useState('');
+    // Images for this model
     const [images, setImages] = useState<string[]>([]);
+    // API enrichment spinner
+    const [apiEnriching, setApiEnriching] = useState(false);
 
+    // Fetch model, notes, tags, images
     useEffect(() => {
         (async () => {
+            // Optionally fetch full model from DB (for demo, use placeholder)
+            setModel({
+                file_name: 'anything-v4.5.safetensors',
+                model_type: 'SD1',
+                version: '4.5',
+                base_model: 'Anything',
+                file_path: 'F:/_AI-Models/anything-v4.5.safetensors',
+                civitai_url: 'https://civitai.com/models/abc123',
+                huggingface_url: '',
+            });
+
+            setUserNote(await window.electronAPI.getUserNote(modelHash));
+            setTags((await window.electronAPI.getTags(modelHash)).map((t: any) => t.tag));
             setImages(await window.electronAPI.getModelImages(modelHash));
         })();
     }, [modelHash]);
+
+    // Notes handlers
+    const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => setUserNote(e.target.value);
+
+    const saveNote = async () => {
+        await window.electronAPI.setUserNote(modelHash, userNote);
+    };
+
+    // Tags handlers
+    const addTag = async () => {
+        if (newTag && !tags.includes(newTag)) {
+            await window.electronAPI.addTag(modelHash, newTag);
+            setTags([...tags, newTag]);
+            setNewTag('');
+        }
+    };
+    const removeTag = async (tag: string) => {
+        await window.electronAPI.removeTag(modelHash, tag);
+        setTags(tags.filter(t => t !== tag));
+    };
+
+    // API enrichment
+    const handleEnrichFromAPI = async () => {
+        setApiEnriching(true);
+        await window.electronAPI.enrichModelFromAPI(modelHash);
+        setImages(await window.electronAPI.getModelImages(modelHash)); // reload images after enrichment
+        setApiEnriching(false);
+    };
 
     return (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
@@ -48,32 +94,66 @@ const ModelDetailsModal: React.FC<{
                     &times;
                 </button>
                 <h2 className="text-2xl font-bold mb-4">{model.file_name}</h2>
+                <button
+                    onClick={handleEnrichFromAPI}
+                    className="px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-700 mt-2 mb-4"
+                    disabled={apiEnriching}
+                >
+                    {apiEnriching ? 'Fetching…' : 'Enrich from API'}
+                </button>
                 <div className="flex gap-6">
                     <div className="w-1/3">
-                        {/* Show up to 5 thumbnails; link to image folder */}
+                        {/* Show up to 5 thumbnails */}
                         <div className="mb-3">
                             <div className="grid grid-cols-3 gap-2">
-                                {model.images.slice(0, 5).map(img =>
-                                    <img key={img.path} src={img.path} alt="Model preview" className="rounded shadow" />
+                                {images.slice(0, 5).map(img =>
+                                    <img
+                                        key={img}
+                                        src={`file://${img}`}
+                                        alt="Model preview"
+                                        className="rounded shadow"
+                                        draggable={false}
+                                    />
                                 )}
                             </div>
                             <div className="text-xs mt-2 text-muted">
-                                {model.images.length} images stored
+                                {images.length} images stored
                             </div>
                         </div>
                         {/* Tags */}
                         <div className="mb-3">
                             <span className="font-semibold">Tags:</span>
                             <div className="flex flex-wrap gap-2 mt-1">
-                                {model.tags.map(tag =>
-                                    <span key={tag} className="bg-primary/10 text-primary px-2 py-1 rounded">{tag}</span>
+                                {tags.map(tag =>
+                                    <span key={tag} className="bg-primary/10 text-primary px-2 py-1 rounded flex items-center gap-1">
+                                        {tag}
+                                        <button className="text-red-400 ml-1" onClick={() => removeTag(tag)} title="Remove tag">&times;</button>
+                                    </span>
                                 )}
+                                <input
+                                    type="text"
+                                    value={newTag}
+                                    onChange={e => setNewTag(e.target.value)}
+                                    placeholder="Add tag"
+                                    className="border rounded px-2 py-1 w-20"
+                                    onKeyDown={e => e.key === 'Enter' && addTag()}
+                                />
+                                <button
+                                    className="bg-primary text-white rounded px-2 py-1 ml-1"
+                                    onClick={addTag}
+                                >+</button>
                             </div>
                         </div>
                         {/* User Notes */}
                         <div className="mb-3">
                             <span className="font-semibold">Notes:</span>
-                            <textarea className="w-full p-2 border rounded bg-muted mt-1" rows={3} defaultValue={model.userNotes}></textarea>
+                            <textarea
+                                className="w-full p-2 border rounded bg-muted mt-1"
+                                rows={3}
+                                value={userNote}
+                                onChange={handleNoteChange}
+                                onBlur={saveNote}
+                            />
                         </div>
                     </div>
                     <div className="flex-1">
@@ -85,16 +165,18 @@ const ModelDetailsModal: React.FC<{
                             <div className="text-xs text-muted mt-1 truncate">
                                 <strong>Path:</strong> {model.file_path}
                             </div>
-                            <div><strong>Hash:</strong> {model.hash}</div>
+                            <div><strong>Hash:</strong> {modelHash}</div>
                         </div>
                         {/* External links */}
                         <div className="flex gap-4 mb-4">
-                            <a href={model.civitai_url} target="_blank" rel="noopener" className="text-blue-600 underline">Civitai</a>
+                            {model.civitai_url &&
+                                <a href={model.civitai_url} target="_blank" rel="noopener" className="text-blue-600 underline">Civitai</a>
+                            }
                             {model.huggingface_url &&
                                 <a href={model.huggingface_url} target="_blank" rel="noopener" className="text-blue-600 underline">Hugging Face</a>
                             }
                         </div>
-                        {/* Prompts & Keywords */}
+                        {/* Prompts & Keywords (placeholder content) */}
                         <div className="mb-4">
                             <span className="font-semibold">Sample Prompts:</span>
                             <div className="mt-1 bg-muted rounded p-2 text-sm">

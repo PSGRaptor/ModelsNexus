@@ -12,11 +12,13 @@ import React from 'react';
  *   onOpenConfig: () => void      // open config modal
  *   onSelectModel: (modelHash: string) => void  // select a model from the sidebar (if applicable)
  */
-const Sidebar: React.FC<{
+type SidebarProps = {
     onOpenConfig: () => void;
     onSelectModel: (modelHash: string) => void;
     onUpdateScan: () => void;
-}> = ({ onOpenConfig }) => {
+};
+
+const Sidebar: React.FC<SidebarProps> = ({ onOpenConfig, onSelectModel, onUpdateScan }) => {
     // Placeholder: Static model types; to be dynamic from DB/API
     const modelTypes = ['SD1', 'SDXL', 'PONY', 'FLUX', 'HiDream', 'WAN'];
     return (

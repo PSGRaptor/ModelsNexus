@@ -15,6 +15,7 @@
   "include": [
     "main",
     "renderer/src",
+    "renderer/src/components",
     "db",
     "api"
   ],

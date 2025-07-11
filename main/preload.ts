@@ -12,4 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setApiKey: async (provider: string, apiKey: string) => ipcRenderer.invoke('setApiKey', provider, apiKey),
     saveModelImage: async (modelHash: string, imageUrl: string) => ipcRenderer.invoke('saveModelImage', modelHash, imageUrl),
     getModelImages: async (modelHash: string) => ipcRenderer.invoke('getModelImages', modelHash),
+    enrichModelFromAPI: async (model_hash: string) => ipcRenderer.invoke('enrichModelFromAPI', model_hash),
+    getUserNote: async (model_hash: string) => ipcRenderer.invoke('getUserNote', model_hash),
+    setUserNote: async (model_hash: string, note: string) => ipcRenderer.invoke('setUserNote', model_hash, note),
+    getTags: async (model_hash: string) => ipcRenderer.invoke('getTags', model_hash),
+    addTag: async (model_hash: string, tag: string) => ipcRenderer.invoke('addTag', model_hash, tag),
+    removeTag: async (model_hash: string, tag: string) => ipcRenderer.invoke('removeTag', model_hash, tag),
 });

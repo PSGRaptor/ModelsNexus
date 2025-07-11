@@ -85,3 +85,26 @@ export async function setApiKey(provider: string, apiKey: string) {
         provider, apiKey, new Date().toISOString()
     );
 }
+
+export async function getUserNote(model_hash: string) {
+    const row = await db.get('SELECT note FROM user_notes WHERE model_hash = ?', model_hash);
+    return row ? row.note : '';
+}
+export async function setUserNote(model_hash: string, note: string) {
+    await db.run(`
+    INSERT INTO user_notes (model_hash, note, created_at, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(model_hash) DO UPDATE SET note=excluded.note, updated_at=CURRENT_TIMESTAMP
+  `, model_hash, note);
+}
+
+// Get, add, remove tags
+export async function getTags(model_hash: string) {
+    return db.all('SELECT tag FROM tags WHERE model_hash = ?', model_hash);
+}
+export async function addTag(model_hash: string, tag: string) {
+    await db.run('INSERT OR IGNORE INTO tags (model_hash, tag) VALUES (?, ?)', model_hash, tag);
+}
+export async function removeTag(model_hash: string, tag: string) {
+    await db.run('DELETE FROM tags WHERE model_hash = ? AND tag = ?', model_hash, tag);
+}

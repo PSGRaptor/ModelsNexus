@@ -1,10 +1,12 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
-import { getAllModels, initDb } from '../db/db-utils';
-import { getApiKey, setApiKey } from '../db/db-utils';
-import { scanAndImportModels } from './electron-utils/modelScanner';
-import { getAllScanPaths, addScanPath, removeScanPath } from '../db/db-utils';
-import { saveModelImage, getModelImages } from './electron-utils/imageHandler';
+import { getAllModels, initDb } from '../db/db-utils.js';
+import { getApiKey, setApiKey } from '../db/db-utils.js';
+import { getUserNote, setUserNote, getTags, addTag, removeTag } from '../db/db-utils.js';
+import { scanAndImportModels } from './electron-utils/modelScanner.js';
+import { getAllScanPaths, addScanPath, removeScanPath } from '../db/db-utils.js';
+import { saveModelImage, getModelImages } from './electron-utils/imageHandler.js';
+import { enrichModelFromAPI } from './electron-utils/metadataFetcher.js';
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
@@ -108,3 +110,22 @@ ipcMain.handle('saveModelImage', async (_event, modelHash: string, imageUrl: str
 ipcMain.handle('getModelImages', async (_event, modelHash: string) => {
     return getModelImages(modelHash);
 });
+
+ipcMain.handle('enrichModelFromAPI', async (_event, model_hash: string) => {
+    const civitaiKey = await getApiKey('civitai');
+    const hfKey = await getApiKey('huggingface');
+    return await enrichModelFromAPI(model_hash, civitaiKey, hfKey);
+});
+
+ipcMain.handle('getUserNote', async (_event, model_hash) => getUserNote(model_hash));
+ipcMain.handle('setUserNote', async (_event, model_hash, note) => setUserNote(model_hash, note));
+ipcMain.handle('getTags', async (_event, model_hash) => getTags(model_hash));
+ipcMain.handle('addTag', async (_event, model_hash, tag) => addTag(model_hash, tag));
+ipcMain.handle('removeTag', async (_event, model_hash, tag) => removeTag(model_hash, tag));
+ipcMain.handle('getAllModels', async () => await getAllModels());
+ipcMain.handle('getAllScanPaths', async () => await getAllScanPaths());
+ipcMain.handle('addScanPath', async (_event, path: string) => await addScanPath(path));
+ipcMain.handle('removeScanPath', async (_event, path: string) => await removeScanPath(path));
+ipcMain.handle('getApiKey', async (_event, provider: string) => await getApiKey(provider));
+ipcMain.handle('setApiKey', async (_event, provider: string, apiKey: string) => await setApiKey(provider, apiKey));
+
