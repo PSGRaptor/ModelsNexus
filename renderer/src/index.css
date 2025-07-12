@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom global styles (optional, for branding) */
+html, body {
+    background: red !important;
+    @apply bg-background text-foreground font-sans;
+}
+
+a {
+    @apply text-primary hover:underline;
+}

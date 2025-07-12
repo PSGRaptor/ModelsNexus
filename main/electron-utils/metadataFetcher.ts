@@ -1,9 +1,9 @@
 // /main/electron-utils/metadataFetcher.ts
 
-import { db } from '../../db/db-utils';
-import { fetchCivitaiModel, fetchCivitaiImages } from '../../api/civitai';
-import { fetchHuggingFaceModel } from '../../api/huggingface';
-import { saveModelImage } from './imageHandler';
+import { db } from '../../db/db-utils.js';
+import { fetchCivitaiModel, fetchCivitaiImages } from '../../api/civitai.js';
+import { fetchHuggingFaceModel } from '../../api/huggingface.js';
+import { saveModelImage } from './imageHandler.js';
 
 export async function enrichModelFromAPI(
     model_hash: string,

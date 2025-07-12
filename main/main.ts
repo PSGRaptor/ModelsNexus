@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
+import { fileURLToPath } from 'url';
 import path from 'path';
 import { getAllModels, initDb } from '../db/db-utils.js';
 import { getApiKey, setApiKey } from '../db/db-utils.js';
@@ -7,6 +8,9 @@ import { scanAndImportModels } from './electron-utils/modelScanner.js';
 import { getAllScanPaths, addScanPath, removeScanPath } from '../db/db-utils.js';
 import { saveModelImage, getModelImages } from './electron-utils/imageHandler.js';
 import { enrichModelFromAPI } from './electron-utils/metadataFetcher.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
@@ -31,7 +35,7 @@ function createMainWindow() {
     mainWindow.loadURL(
         process.env.NODE_ENV === 'development'
             ? 'http://localhost:3000'
-            : `file://${path.join(__dirname, '../renderer/public/index.html')}`
+            : `file://${path.join(__dirname, '../renderer/dist/index.html')}`
     );
 
     // Show window when ready
@@ -122,10 +126,4 @@ ipcMain.handle('setUserNote', async (_event, model_hash, note) => setUserNote(mo
 ipcMain.handle('getTags', async (_event, model_hash) => getTags(model_hash));
 ipcMain.handle('addTag', async (_event, model_hash, tag) => addTag(model_hash, tag));
 ipcMain.handle('removeTag', async (_event, model_hash, tag) => removeTag(model_hash, tag));
-ipcMain.handle('getAllModels', async () => await getAllModels());
-ipcMain.handle('getAllScanPaths', async () => await getAllScanPaths());
-ipcMain.handle('addScanPath', async (_event, path: string) => await addScanPath(path));
-ipcMain.handle('removeScanPath', async (_event, path: string) => await removeScanPath(path));
-ipcMain.handle('getApiKey', async (_event, provider: string) => await getApiKey(provider));
-ipcMain.handle('setApiKey', async (_event, provider: string, apiKey: string) => await setApiKey(provider, apiKey));
 

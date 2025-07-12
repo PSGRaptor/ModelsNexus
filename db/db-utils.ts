@@ -1,7 +1,13 @@
 // db/db-utils.ts
+
+import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs/promises';
 import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Use Electron's app.getPath('userData') to store the DB in the user's profile
 const getDbPath = () => {
@@ -24,7 +30,7 @@ export async function initDb() {
         driver: sqlite3.Database,
     });
     // Apply schema if new
-    await db.exec(await require('fs').promises.readFile(path.join(__dirname, 'schema.sql'), 'utf-8'));
+    await db.exec(await fs.readFile(path.join(__dirname, 'schema.sql'), 'utf-8'));
 }
 
 // Add a model to the DB (simplified)

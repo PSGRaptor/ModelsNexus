@@ -6,12 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "yarn tsc && electron-forge start",
-    "dev": "vite",
-    "build": "yarn tsc && vite build",
-    "package": "electron-forge package",
+    "build": "yarn tsc",
+    "packagecls": "electron-forge package",
     "make": "electron-forge make",
-    "lint": "eslint . --ext .ts,.tsx",
-    "preview": "vite preview"
+    "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
     "axios": "^1.10.0",
