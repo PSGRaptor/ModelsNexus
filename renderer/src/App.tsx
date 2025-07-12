@@ -6,6 +6,7 @@ import ModelDetailsModal from './components/ModelDetailsModal';
 import ConfigModal from './components/ConfigModal';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
+import SearchBar from './components/SearchBar';
 import './index.css';
 
 import logo from './assets/logo.png';
@@ -20,6 +21,13 @@ const App: React.FC = () => {
     const [selectedModel, setSelectedModel] = useState<string | null>(null);
     const [models, setModels] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const [search, setSearch] = useState('');
+
+    const filteredModels = models.filter(m =>
+        m.file_name?.toLowerCase().includes(search.toLowerCase()) ||
+        m.model_type?.toLowerCase().includes(search.toLowerCase()) ||
+        m.base_model?.toLowerCase().includes(search.toLowerCase())
+    );
 
     const fetchModels = async () => {
         setLoading(true);
@@ -58,18 +66,19 @@ const App: React.FC = () => {
                 <Header logo={logo} onOpenConfig={handleOpenConfig} />
 
                 <div className="flex flex-1">
+
                     {/* Sidebar: filters, search, update scan, etc. */}
                     <Sidebar
                         onOpenConfig={handleOpenConfig}
                         onSelectModel={handleSelectModel}
                         onUpdateScan={handleUpdateScan}
                     />
-
+                    <SearchBar value={search} onChange={setSearch} placeholder="Search by name, type, or base..." />
                     {/* Main content: grid/list of models */}
                     <main className="flex-1 overflow-y-auto p-6">
                         {loading
                             ? <Spinner />
-                            : <ModelGrid onSelectModel={handleSelectModel} models={models} />
+                            : <ModelGrid onSelectModel={handleSelectModel} models={filteredModels} />
                         }
                     </main>
                 </div>
