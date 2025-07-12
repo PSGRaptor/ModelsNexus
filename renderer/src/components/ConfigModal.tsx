@@ -6,35 +6,45 @@ type ConfigModalProps = {
 
 const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [scanPaths, setScanPaths] = useState<string[]>([]);
+    const [newPath, setNewPath] = useState('');
     const [civitaiKey, setCivitaiKey] = useState('');
     const [huggingfaceKey, setHuggingfaceKey] = useState('');
-    const [newPath, setNewPath] = useState('');
+    const [savingKeys, setSavingKeys] = useState(false);
 
+    // Fetch initial config values
     useEffect(() => {
         (async () => {
             if (window.electronAPI) {
-                setScanPaths((await window.electronAPI.getAllScanPaths()).map((p: any) => p.path));
+                const allPaths = await window.electronAPI.getAllScanPaths();
+                setScanPaths(allPaths.map((p: any) => p.path));
                 setCivitaiKey(await window.electronAPI.getApiKey('civitai'));
                 setHuggingfaceKey(await window.electronAPI.getApiKey('huggingface'));
             }
         })();
     }, []);
 
+    // Add a new scan path (drive letter, UNC, or folder)
     const handleAddPath = async () => {
         if (!newPath) return;
         await window.electronAPI.addScanPath(newPath);
-        setScanPaths((await window.electronAPI.getAllScanPaths()).map((p: any) => p.path));
+        const allPaths = await window.electronAPI.getAllScanPaths();
+        setScanPaths(allPaths.map((p: any) => p.path));
         setNewPath('');
     };
 
+    // Remove/disable a scan path
     const handleRemovePath = async (path: string) => {
         await window.electronAPI.removeScanPath(path);
-        setScanPaths((await window.electronAPI.getAllScanPaths()).map((p: any) => p.path));
+        const allPaths = await window.electronAPI.getAllScanPaths();
+        setScanPaths(allPaths.map((p: any) => p.path));
     };
 
+    // Save API keys
     const handleSaveKeys = async () => {
+        setSavingKeys(true);
         await window.electronAPI.setApiKey('civitai', civitaiKey);
         await window.electronAPI.setApiKey('huggingface', huggingfaceKey);
+        setSavingKeys(false);
     };
 
     return (
@@ -50,11 +60,14 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                 <div className="mb-6">
                     <div className="font-semibold mb-2">Model Scan Folders</div>
                     <ul className="mb-2">
+                        {scanPaths.length === 0 && (
+                            <li className="text-muted">No folders configured yet.</li>
+                        )}
                         {scanPaths.map(path =>
-                            <li key={path} className="flex items-center justify-between">
+                            <li key={path} className="flex items-center justify-between group">
                                 <span>{path}</span>
                                 <button
-                                    className="text-red-400 hover:text-red-600 text-xl font-bold ml-2"
+                                    className="text-red-400 hover:text-red-600 text-xl font-bold ml-2 opacity-0 group-hover:opacity-100 transition"
                                     onClick={() => handleRemovePath(path)}
                                     title="Remove"
                                 >&times;</button>
@@ -65,9 +78,13 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         <input
                             type="text"
                             className="flex-1 p-2 rounded border border-border bg-muted"
-                            placeholder="Add new path"
+                            placeholder="Add new folder or \\network\share"
                             value={newPath}
                             onChange={e => setNewPath(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleAddPath()}
+                            spellCheck={false}
+                            autoCorrect="off"
+                            autoCapitalize="none"
                         />
                         <button
                             className="bg-primary text-white px-4 py-2 rounded hover:bg-primary-dark"
@@ -85,21 +102,28 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                             className="mt-1 p-2 rounded border border-border bg-muted w-full"
                             value={civitaiKey}
                             onChange={e => setCivitaiKey(e.target.value)}
+                            autoComplete="off"
+                            spellCheck={false}
                         />
                     </label>
                     <label className="block mb-2">
-                        <span className="text-sm text-muted">HuggingFace</span>
+                        <span className="text-sm text-muted">Hugging Face</span>
                         <input
                             type="text"
                             className="mt-1 p-2 rounded border border-border bg-muted w-full"
                             value={huggingfaceKey}
                             onChange={e => setHuggingfaceKey(e.target.value)}
+                            autoComplete="off"
+                            spellCheck={false}
                         />
                     </label>
                     <button
-                        className="bg-primary text-white px-4 py-2 rounded hover:bg-primary-dark"
+                        className={`bg-primary text-white px-4 py-2 rounded hover:bg-primary-dark ${savingKeys ? 'opacity-60 pointer-events-none' : ''}`}
                         onClick={handleSaveKeys}
-                    >Save API Keys</button>
+                        disabled={savingKeys}
+                    >
+                        {savingKeys ? 'Saving...' : 'Save API Keys'}
+                    </button>
                 </div>
             </div>
         </div>

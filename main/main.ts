@@ -1,11 +1,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { getAllModels, initDb } from '../db/db-utils.js';
-import { getApiKey, setApiKey } from '../db/db-utils.js';
+import { getAllModels, initDb, getAllScanPaths, addScanPath, removeScanPath, getApiKey, setApiKey } from '../db/db-utils.js';
 import { getUserNote, setUserNote, getTags, addTag, removeTag } from '../db/db-utils.js';
 import { scanAndImportModels } from './electron-utils/modelScanner.js';
-import { getAllScanPaths, addScanPath, removeScanPath } from '../db/db-utils.js';
 import { saveModelImage, getModelImages } from './electron-utils/imageHandler.js';
 import { enrichModelFromAPI } from './electron-utils/metadataFetcher.js';
 
@@ -61,6 +59,11 @@ app.on('activate', () => {
     if (mainWindow === null) createMainWindow();
 });
 
+app.whenReady().then(async () => {
+    await initDb();
+    // ...rest of window creation logic...
+});
+
 /**
  * IPC handlers for secure communications (expand as needed)
  */
@@ -80,12 +83,6 @@ ipcMain.handle('scanAndImportModels', async () => {
 
 // List scan paths
 ipcMain.handle('getAllScanPaths', async () => {
-    return await getAllScanPaths();
-});
-
-// Add a scan path
-ipcMain.handle('addScanPath', async (_event, pathStr: string) => {
-    await addScanPath(pathStr);
     return await getAllScanPaths();
 });
 
@@ -120,6 +117,13 @@ ipcMain.handle('enrichModelFromAPI', async (_event, model_hash: string) => {
     const hfKey = await getApiKey('huggingface');
     return await enrichModelFromAPI(model_hash, civitaiKey, hfKey);
 });
+
+// Add a new scan path (save to DB if not exists)
+ipcMain.handle('addScanPath', async (_event, pathStr: string) => {
+    await addScanPath(pathStr);
+    return await getAllScanPaths();
+});
+
 
 ipcMain.handle('getUserNote', async (_event, model_hash) => getUserNote(model_hash));
 ipcMain.handle('setUserNote', async (_event, model_hash, note) => setUserNote(model_hash, note));
