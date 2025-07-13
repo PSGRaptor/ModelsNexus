@@ -19,6 +19,10 @@ declare global {
             removeTag: (modelHash: string, tag: string) => Promise<void>;
             getModelImages: (modelHash: string) => Promise<string[]>;
             enrichModelFromAPI: (modelHash: string) => Promise<any>;
+            selectFolder: () => Promise<string | null>;
+            onScanProgress: (callback: (event: any, data: any) => void) => void;
+            removeScanProgress: (callback: (event: any, data: any) => void) => void;
+            cancelScan: () => Promise<void>;
             // ...add any other APIs you expose
         };
     }

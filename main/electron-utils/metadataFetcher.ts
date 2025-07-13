@@ -1,52 +1,66 @@
-// /main/electron-utils/metadataFetcher.ts
-
-import { db } from '../../db/db-utils.js';
-import { fetchCivitaiModel, fetchCivitaiImages } from '../../api/civitai.js';
-import { fetchHuggingFaceModel } from '../../api/huggingface.js';
+import { fetchCivitaiModelVersion, civitaiVersionIdFromHash } from '../../api/civitai.js';
+import { setCivitaiVersionId, getCivitaiVersionId, setUserNote, addTag } from '../../db/db-utils.js';
 import { saveModelImage } from './imageHandler.js';
 
+/**
+ * Enrich model metadata from Civitai (and Hugging Face, stub).
+ * Accepts a model hash (not version ID)—handles lookup, DB sync, etc.
+ * Populates images, prompts, tags, notes, and saves them as needed.
+ * @param model_hash Your model's SHA256 or unique hash string
+ * @param civitaiKey Civitai API key
+ * @param huggingfaceKey Hugging Face API key (optional, not implemented)
+ * @returns Object with all gathered/parsed info, for further use or UI
+ */
 export async function enrichModelFromAPI(
     model_hash: string,
-    civitaiApiKey: string,
-    hfApiKey: string
+    civitaiKey?: string,
+    huggingfaceKey?: string
 ) {
-    // Get model from DB
-    const model = await db.get('SELECT * FROM models WHERE model_hash = ?', model_hash);
-    if (!model) return { error: 'Model not found' };
-
-    // Try Civitai (if civitai_id or civitaiApiKey present)
-    let civitaiData = null;
-    let civitaiImages: any[] = [];
-    if (civitaiApiKey) {
-        try {
-            civitaiData = await fetchCivitaiModel(civitaiApiKey, { hash: model_hash });
-            await db.run('UPDATE models SET civitai_id = ? WHERE model_hash = ?', civitaiData.modelId, model_hash);
-
-            // Save preview images (limit to 25, enforced by saveModelImage)
-            if (civitaiData?.id) {
-                civitaiImages = await fetchCivitaiImages(civitaiApiKey, civitaiData.id);
-                for (const img of civitaiImages.slice(0, 25)) {
-                    await saveModelImage(model_hash, img.url);
-                    // You may want to save to DB "images" table as well with meta_json etc
-                }
-            }
-        } catch (err) {
-            console.warn(`Civitai fetch failed for ${model_hash}:`, err);
-        }
+    // --- Step 1: Lookup/resolve the Civitai version ID for this hash ---
+    let versionId: number | null = await getCivitaiVersionId(model_hash);
+    if (!versionId) {
+        versionId = await civitaiVersionIdFromHash(model_hash);
+        if (versionId) await setCivitaiVersionId(model_hash, versionId);
     }
 
-    // Try Hugging Face (if huggingface_id or hfApiKey present)
-    let hfData = null;
-    if (hfApiKey && model.huggingface_id) {
-        try {
-            hfData = await fetchHuggingFaceModel(hfApiKey, model.huggingface_id);
-            // Process HF data as needed, e.g., update base_model, usage tips, etc
-            // Optionally fetch images from HF if supported
-        } catch (err) {
-            console.warn(`Hugging Face fetch failed for ${model_hash}:`, err);
-        }
+    if (!versionId) {
+        console.warn('No Civitai version found for model hash:', model_hash);
+        return { error: 'No matching Civitai model found' };
     }
 
-    // Return all new info (useful for immediate UI update)
-    return { civitaiData, civitaiImages, hfData };
+    // --- Step 2: Fetch version details using the numeric ID ---
+    const civitaiData = await fetchCivitaiModelVersion(versionId.toString(), civitaiKey);
+    if (!civitaiData) return { error: 'Model not found on Civitai' };
+
+    // --- Step 3: Extract and save images/tags/prompts/notes ---
+    const images = (civitaiData.images || []).map((img: any) => ({
+        url: img.url,
+        prompt: img.meta?.prompt || '',
+        negativePrompt: img.meta?.negativePrompt || '',
+        width: img.width,
+        height: img.height,
+        seed: img.meta?.seed,
+        nsfwLevel: img.nsfwLevel,
+    }));
+
+    const tags = Array.isArray(civitaiData.trainedWords) ? civitaiData.trainedWords : [];
+    const userNote = civitaiData.description || (civitaiData.model?.description ?? '');
+
+    if (userNote) await setUserNote(model_hash, userNote);
+    if (tags && tags.length) {
+        for (const tag of tags) await addTag(model_hash, tag);
+    }
+
+    for (let i = 0; i < Math.min(images.length, 25); i++) {
+        await saveModelImage(model_hash, images[i].url, i, images[i]);
+    }
+
+    // --- Step 4: Optionally, return extracted data for UI update ---
+    return {
+        civitaiData,
+        images,
+        tags,
+        userNote,
+        civitai_version_id: versionId,
+    };
 }

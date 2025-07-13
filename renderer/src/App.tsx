@@ -6,8 +6,8 @@ import ModelDetailsModal from './components/ModelDetailsModal';
 import ConfigModal from './components/ConfigModal';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
-import SearchBar from './components/SearchBar';
 import './index.css';
+import ScanProgressModal from './components/ScanProgressModal';
 
 import logo from './assets/logo.png';
 
@@ -37,6 +37,13 @@ const App: React.FC = () => {
         setLoading(false);
     };
 
+    const [scanProgress, setScanProgress] = useState<{
+        current: number;
+        total: number;
+        file: string;
+        status?: string;
+    } | null>(null);
+
     useEffect(() => {
         fetchModels();
     }, []);
@@ -59,6 +66,21 @@ const App: React.FC = () => {
         setLoading(false);
     };
 
+    useEffect(() => {
+        const handler = (_event: any, data: any) => {
+            setScanProgress({
+                current: data.current,
+                total: data.total,
+                file: data.file,
+                status: data.status,
+            });
+        };
+        window.electronAPI.onScanProgress(handler);
+        return () => {
+            window.electronAPI.removeScanProgress(handler);
+        };
+    }, []);
+
     return (
         <ThemeProvider>
             <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
@@ -72,8 +94,10 @@ const App: React.FC = () => {
                         onOpenConfig={handleOpenConfig}
                         onSelectModel={handleSelectModel}
                         onUpdateScan={handleUpdateScan}
+                        search={search}
+                        setSearch={setSearch}
                     />
-                    <SearchBar value={search} onChange={setSearch} placeholder="Search by name, type, or base..." />
+
                     {/* Main content: grid/list of models */}
                     <main className="flex-1 overflow-y-auto p-6">
                         {loading
@@ -89,6 +113,14 @@ const App: React.FC = () => {
                     <ModelDetailsModal
                         modelHash={selectedModel}
                         onClose={handleCloseModelDetails}
+                    />
+                )}
+                {scanProgress && (
+                    <ScanProgressModal
+                        current={scanProgress.current}
+                        total={scanProgress.total}
+                        file={scanProgress.file}
+                        status={scanProgress.status}
                     />
                 )}
             </div>

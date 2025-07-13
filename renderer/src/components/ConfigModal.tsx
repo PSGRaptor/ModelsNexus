@@ -25,11 +25,12 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
 
     // Add a new scan path (drive letter, UNC, or folder)
     const handleAddPath = async () => {
-        if (!newPath) return;
-        await window.electronAPI.addScanPath(newPath);
-        const allPaths = await window.electronAPI.getAllScanPaths();
-        setScanPaths(allPaths.map((p: any) => p.path));
-        setNewPath('');
+        const folder = await window.electronAPI.selectFolder();
+        if (!folder) return;
+        if (!scanPaths.includes(folder)) {
+            const paths = await window.electronAPI.addScanPath(folder);
+            setScanPaths(paths.map((p: any) => p.path));
+        }
     };
 
     // Remove/disable a scan path
@@ -87,9 +88,12 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                             autoCapitalize="none"
                         />
                         <button
-                            className="bg-primary text-white px-4 py-2 rounded hover:bg-primary-dark"
+                            type="button"
+                            className="bg-primary text-white px-3 py-1 rounded"
                             onClick={handleAddPath}
-                        >Add</button>
+                        >
+                            Add
+                        </button>
                     </div>
                 </div>
                 {/* API keys */}

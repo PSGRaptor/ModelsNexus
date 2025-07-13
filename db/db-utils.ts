@@ -11,7 +11,6 @@ const __dirname = path.dirname(__filename);
 
 // Use Electron's app.getPath('userData') to store the DB in the user's profile
 const getDbPath = () => {
-    // Fallback to current dir if electron is not available
     try {
         // @ts-ignore
         const electron = require('electron');
@@ -31,6 +30,21 @@ export async function initDb() {
     });
     // Apply schema if new
     await db.exec(await fs.readFile(path.join(__dirname, 'schema.sql'), 'utf-8'));
+
+    // --- SAFE AUTO-MIGRATION: Add civitai_version_id column if missing ---
+    const columns = await db.all("PRAGMA table_info(models)");
+    if (!columns.some((c: any) => c.name.toLowerCase() === 'civitai_version_id')) {
+        try {
+            await db.exec(`ALTER TABLE models ADD COLUMN civitai_version_id INTEGER`);
+            console.log('Added civitai_version_id column to models table');
+        } catch (e: any) {
+            if (/duplicate column/i.test(e.message)) {
+                console.warn('civitai_version_id column already exists in models table');
+            } else {
+                throw e;
+            }
+        }
+    }
 }
 
 // Add a model to the DB (simplified)
@@ -98,10 +112,10 @@ export async function getUserNote(model_hash: string) {
 }
 export async function setUserNote(model_hash: string, note: string) {
     await db.run(`
-    INSERT INTO user_notes (model_hash, note, created_at, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT(model_hash) DO UPDATE SET note=excluded.note, updated_at=CURRENT_TIMESTAMP
-  `, model_hash, note);
+        INSERT INTO user_notes (model_hash, note, created_at, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(model_hash) DO UPDATE SET note=excluded.note, updated_at=CURRENT_TIMESTAMP
+    `, model_hash, note);
 }
 
 // Get, add, remove tags
@@ -113,4 +127,24 @@ export async function addTag(model_hash: string, tag: string) {
 }
 export async function removeTag(model_hash: string, tag: string) {
     await db.run('DELETE FROM tags WHERE model_hash = ? AND tag = ?', model_hash, tag);
+}
+
+// --------------- Civitai Version ID utilities ---------------
+
+// Set civitai_version_id for a model (by hash)
+export async function setCivitaiVersionId(model_hash: string, version_id: number) {
+    await db.run(
+        `UPDATE models SET civitai_version_id = ? WHERE model_hash = ?`,
+        version_id,
+        model_hash
+    );
+}
+
+// Get civitai_version_id for a model (by hash)
+export async function getCivitaiVersionId(model_hash: string): Promise<number | null> {
+    const row = await db.get(
+        `SELECT civitai_version_id FROM models WHERE model_hash = ?`,
+        model_hash
+    );
+    return row && row.civitai_version_id ? row.civitai_version_id : null;
 }

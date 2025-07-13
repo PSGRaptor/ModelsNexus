@@ -1,28 +1,54 @@
 import fs from 'fs';
 import path from 'path';
-import { hashFile } from '../utils/modelUtils.js'; // Update if your path differs
+import { hashFile } from '../utils/modelUtils.js';
 import { addModel } from '../../db/db-utils.js';
+import { enrichModelFromAPI } from './metadataFetcher.js';
+import { getApiKey } from '../../db/db-utils.js';
 
-// Supported model file extensions (easily expanded)
 const MODEL_EXTENSIONS = ['.safetensors', '.pt', '.ckpt', '.lora', '.gguf'];
 
-export type ModelFile = {
-    file_name: string;
-    file_path: string;
-    model_type?: string;
-    file_size: number;
-    date_added: string;
-    model_hash: string; // Renamed for consistency
-};
-
 /**
- * Recursively scan a list of directories for model files and import to DB.
- * @param scanDirs Array of string directories to scan
- * @returns Array of model_hashes of newly imported models
+ * Recursively scan directories for model files, import to DB,
+ * emit scan progress to renderer, and enrich models as needed.
+ *
+ * @param scanDirs - Directories to scan
+ * @param webContentsInstance - Electron WebContents instance for sending progress events
+ * @param isCancelled - Function returning true if scan should abort
+ * @returns Array of hashes for imported models
  */
-export async function scanAndImportModels(scanDirs: string[]): Promise<string[]> {
+export async function scanAndImportModels(
+    scanDirs: string[],
+    webContentsInstance: Electron.WebContents,
+    isCancelled: () => boolean
+): Promise<string[]> {
     let imported: string[] = [];
 
+    // Step 1: Gather all files first for accurate progress counting
+    let allFiles: { dir: string; file: string }[] = [];
+    for (const dir of scanDirs) {
+        gatherFiles(dir, allFiles);
+    }
+    function gatherFiles(currentDir: string, resultArr: { dir: string; file: string }[]) {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(currentDir, { withFileTypes: true });
+        } catch (err) {
+            console.warn(`Skipping unreadable directory: ${currentDir}`, err);
+            return;
+        }
+        for (const entry of entries) {
+            const fullPath = path.join(currentDir, entry.name);
+            if (entry.isDirectory()) {
+                gatherFiles(fullPath, resultArr);
+            } else if (MODEL_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) {
+                resultArr.push({ dir: currentDir, file: entry.name });
+            }
+        }
+    }
+    const totalModels = allFiles.length;
+    let scannedCount = 0;
+
+    // Step 2: Scan and import each file, emitting progress
     for (const dir of scanDirs) {
         await recurse(dir);
     }
@@ -32,7 +58,6 @@ export async function scanAndImportModels(scanDirs: string[]): Promise<string[]>
         try {
             entries = fs.readdirSync(currentDir, { withFileTypes: true });
         } catch (err) {
-            // Log and skip directories we cannot read
             console.warn(`Skipping unreadable directory: ${currentDir}`, err);
             return;
         }
@@ -41,11 +66,33 @@ export async function scanAndImportModels(scanDirs: string[]): Promise<string[]>
             if (entry.isDirectory()) {
                 await recurse(fullPath);
             } else if (MODEL_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) {
+
+                if (isCancelled()) {
+                    if (webContentsInstance) {
+                        webContentsInstance.send('scan-progress', {
+                            current: scannedCount,
+                            total: totalModels,
+                            file: '',
+                            status: 'cancelled'
+                        });
+                    }
+                    return imported;
+                }
+
                 let hash: string;
                 try {
                     hash = await hashFile(fullPath);
                 } catch (err) {
                     console.warn(`Failed to hash file: ${fullPath}`, err);
+                    scannedCount++;
+                    if (webContentsInstance) {
+                        webContentsInstance.send('scan-progress', {
+                            current: scannedCount,
+                            total: totalModels,
+                            file: entry.name,
+                            status: 'hash-failed'
+                        });
+                    }
                     continue;
                 }
                 const date_added = new Date().toISOString();
@@ -60,7 +107,47 @@ export async function scanAndImportModels(scanDirs: string[]): Promise<string[]>
                     imported.push(hash);
                 } catch (err) {
                     console.warn(`Failed to add model: ${fullPath}`, err);
-                    // continue to next file
+                }
+
+                // --- Progress event for each file ---
+                scannedCount++;
+                if (webContentsInstance) {
+                    webContentsInstance.send('scan-progress', {
+                        current: scannedCount,
+                        total: totalModels,
+                        file: entry.name,
+                        hash,
+                        status: 'scanned'
+                    });
+                }
+
+                // --- Optional: Enrich metadata as you go ---
+                try {
+                    const civitaiKey = await getApiKey('civitai');
+                    const hfKey = await getApiKey('huggingface');
+                    if (civitaiKey || hfKey) {
+                        if (webContentsInstance) {
+                            webContentsInstance.send('scan-progress', {
+                                current: scannedCount,
+                                total: totalModels,
+                                file: entry.name,
+                                hash,
+                                status: 'enriching'
+                            });
+                        }
+                        await enrichModelFromAPI(hash, civitaiKey, hfKey);
+                        if (webContentsInstance) {
+                            webContentsInstance.send('scan-progress', {
+                                current: scannedCount,
+                                total: totalModels,
+                                file: entry.name,
+                                hash,
+                                status: 'enriched'
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`Failed to enrich model info: ${fullPath}`, err);
                 }
             }
         }

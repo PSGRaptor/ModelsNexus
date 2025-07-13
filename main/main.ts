@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { getAllModels, initDb, getAllScanPaths, addScanPath, removeScanPath, getApiKey, setApiKey } from '../db/db-utils.js';
@@ -6,13 +6,14 @@ import { getUserNote, setUserNote, getTags, addTag, removeTag } from '../db/db-u
 import { scanAndImportModels } from './electron-utils/modelScanner.js';
 import { saveModelImage, getModelImages } from './electron-utils/imageHandler.js';
 import { enrichModelFromAPI } from './electron-utils/metadataFetcher.js';
+import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
-
+let scanCancelled = false;
 /**
  * Create the main application window
  */
@@ -77,8 +78,11 @@ ipcMain.handle('getAllModels', async () => {
 
 // Add IPC handler to scan and import models
 ipcMain.handle('scanAndImportModels', async () => {
-    const scanPaths = await getAllScanPaths(); // Reads paths from DB
-    return scanAndImportModels(scanPaths.map(p => p.path));
+    scanCancelled = false; // Reset before every scan
+    const scanPaths = await getAllScanPaths();
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    if (!win) throw new Error('No browser window available for scan progress!');
+    return scanAndImportModels(scanPaths.map(p => p.path), win.webContents, () => scanCancelled);
 });
 
 // List scan paths
@@ -124,6 +128,18 @@ ipcMain.handle('addScanPath', async (_event, pathStr: string) => {
     return await getAllScanPaths();
 });
 
+ipcMain.handle('selectFolder', async (event) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = win
+        ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+        : await dialog.showOpenDialog({ properties: ['openDirectory'] });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+});
+
+ipcMain.handle('cancelScan', () => {
+    scanCancelled = true;
+});
 
 ipcMain.handle('getUserNote', async (_event, model_hash) => getUserNote(model_hash));
 ipcMain.handle('setUserNote', async (_event, model_hash, note) => setUserNote(model_hash, note));
