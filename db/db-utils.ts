@@ -23,6 +23,10 @@ const getDbPath = () => {
 // Exported DB instance (open on demand)
 export let db: Database<sqlite3.Database, sqlite3.Statement>;
 
+export async function updateFavorite(model_hash: string, is_favorite: number) {
+    await db.run('UPDATE models SET is_favorite = ? WHERE model_hash = ?', is_favorite, model_hash);
+}
+
 export async function initDb() {
     db = await open({
         filename: getDbPath(),
@@ -45,6 +49,22 @@ export async function initDb() {
             }
         }
     }
+}
+
+// Update Civitai model info for a given model hash
+export async function updateCivitaiModelInfo(model_hash: string, civitai_id: string, civitai_version_id: string, model_type: string, base_model: string, version: string, civitai_url: string) {
+    await db.run(
+        `UPDATE models
+         SET civitai_id = ?, civitai_version_id = ?, model_type = ?, base_model = ?, version = ?, source_url = ?
+         WHERE model_hash = ?`,
+        civitai_id,
+        civitai_version_id,
+        model_type,
+        base_model,
+        version,
+        civitai_url,
+        model_hash
+    );
 }
 
 // Add a model to the DB (simplified)
@@ -82,6 +102,10 @@ export async function addScanPath(pathStr: string) {
         pathStr,
         new Date().toISOString()
     );
+}
+
+export async function getModelByHash(model_hash: string) {
+    return db.get('SELECT * FROM models WHERE model_hash = ?', model_hash);
 }
 
 // Remove (disable) scan path
@@ -147,4 +171,36 @@ export async function getCivitaiVersionId(model_hash: string): Promise<number | 
         model_hash
     );
     return row && row.civitai_version_id ? row.civitai_version_id : null;
+}
+
+/**
+ * Save a model image (URL and meta) for a model.
+ * @param model_hash string
+ * @param imageUrl string (URL or file path)
+ * @param _index number (not stored but can be used for ordering)
+ * @param meta any metadata (will be stringified as JSON)
+ */
+export async function saveModelImage(model_hash: string, imageUrl: string, _index: number, meta: any) {
+    try {
+        await db.run(
+            `INSERT OR REPLACE INTO images (model_hash, image_path, source_url, created_at, meta_json)
+             VALUES (?, ?, ?, ?, ?)`,
+            model_hash,
+            imageUrl,
+            imageUrl,
+            new Date().toISOString(),
+            JSON.stringify(meta || {})
+        );
+    } catch (err) {
+        console.error('Error saving model image:', err);
+    }
+}
+
+/**
+ * Get all images for a model.
+ * @param model_hash string
+ * @returns Promise<any[]>
+ */
+export async function getModelImages(model_hash: string): Promise<any[]> {
+    return db.all('SELECT * FROM images WHERE model_hash = ? ORDER BY id ASC', model_hash);
 }

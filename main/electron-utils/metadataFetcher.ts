@@ -1,66 +1,126 @@
-import { fetchCivitaiModelVersion, civitaiVersionIdFromHash } from '../../api/civitai.js';
-import { setCivitaiVersionId, getCivitaiVersionId, setUserNote, addTag } from '../../db/db-utils.js';
-import { saveModelImage } from './imageHandler.js';
+// main/electron-utils/metadataFetcher.ts
 
-/**
- * Enrich model metadata from Civitai (and Hugging Face, stub).
- * Accepts a model hash (not version ID)—handles lookup, DB sync, etc.
- * Populates images, prompts, tags, notes, and saves them as needed.
- * @param model_hash Your model's SHA256 or unique hash string
- * @param civitaiKey Civitai API key
- * @param huggingfaceKey Hugging Face API key (optional, not implemented)
- * @returns Object with all gathered/parsed info, for further use or UI
- */
-export async function enrichModelFromAPI(
-    model_hash: string,
-    civitaiKey?: string,
-    huggingfaceKey?: string
-) {
-    // --- Step 1: Lookup/resolve the Civitai version ID for this hash ---
-    let versionId: number | null = await getCivitaiVersionId(model_hash);
-    if (!versionId) {
-        versionId = await civitaiVersionIdFromHash(model_hash);
-        if (versionId) await setCivitaiVersionId(model_hash, versionId);
+import axios from 'axios';
+import fs from 'fs-extra';
+import path from 'path';
+import {
+    getApiKey,
+    setUserNote,
+    addTag,
+    saveModelImage,
+    updateCivitaiModelInfo
+} from '../../db/db-utils.js';
+
+// Helper: Download one image to local disk and return local path
+async function downloadAndSaveImage(model_hash: string, url: string, index: number) {
+    try {
+        const imagesDir = path.resolve('images', model_hash);
+        await fs.ensureDir(imagesDir);
+        const ext = path.extname(new URL(url).pathname) || '.jpg';
+        const imgPath = path.join(imagesDir, `${index}${ext}`);
+
+        // Download if not already present
+        if (!fs.existsSync(imgPath)) {
+            const response = await axios.get(url, { responseType: 'arraybuffer' });
+            await fs.writeFile(imgPath, response.data);
+        }
+        return imgPath;
+    } catch (err) {
+        console.warn(`Failed to download image for ${model_hash} (${url}):`, err);
+        return url; // fallback to remote URL
     }
+}
 
-    if (!versionId) {
-        console.warn('No Civitai version found for model hash:', model_hash);
-        return { error: 'No matching Civitai model found' };
+// Main enrichment function: called per model hash
+export async function enrichModelFromAPI(model_hash: string): Promise<any> {
+    try {
+        const civitaiKey = await getApiKey('civitai');
+        const civitaiData = await fetchModelVersionByHash(model_hash, civitaiKey);
+
+        if (!civitaiData) {
+            return { error: 'Model hash not found on Civitai' };
+        }
+
+        // Extract info
+        const versionId = civitaiData.id?.toString() || '';
+        const modelId = civitaiData.modelId?.toString() || civitaiData.model?.id?.toString() || '';
+        const modelType = civitaiData.baseModelType || civitaiData.modelType || civitaiData.model?.type || '';
+        const baseModel = civitaiData.baseModel || '';
+        const version = civitaiData.name || '';
+        const civitaiUrl = modelId && versionId
+            ? `https://civitai.com/models/${modelId}?modelVersionId=${versionId}`
+            : '';
+
+        // Tags and notes
+        const tags = Array.isArray(civitaiData.trainedWords) ? civitaiData.trainedWords : [];
+        const userNote = civitaiData.description || (civitaiData.model?.description ?? '');
+        if (userNote) await setUserNote(model_hash, userNote);
+        if (tags && tags.length) {
+            for (const tag of tags) await addTag(model_hash, tag);
+        }
+
+        // Download and save up to 25 images
+        const images = (civitaiData.images || []).map((img: any) => ({
+            url: img.url,
+            prompt: img.meta?.prompt || '',
+            negativePrompt: img.meta?.negativePrompt || '',
+            width: img.width,
+            height: img.height,
+            seed: img.meta?.seed,
+            nsfwLevel: img.nsfwLevel,
+        }));
+
+        const imageEntries = [];
+        for (let i = 0; i < Math.min(images.length, 25); i++) {
+            const localPath = await downloadAndSaveImage(model_hash, images[i].url, i);
+            await saveModelImage(model_hash, localPath, i, images[i]); // DB entry
+            imageEntries.push({
+                ...images[i],
+                localPath,
+            });
+        }
+
+        // Save main info
+        await updateCivitaiModelInfo(
+            model_hash,
+            modelId,
+            versionId,
+            modelType,
+            baseModel,
+            version,
+            civitaiUrl
+        );
+
+        // Return info for UI
+        return {
+            civitaiData,
+            images: imageEntries,
+            tags,
+            userNote,
+            civitai_version_id: versionId,
+            modelId,
+            modelType,
+            baseModel,
+            version,
+            civitaiUrl,
+        };
+
+    } catch (err) {
+        console.error('Error in enrichModelFromAPI:', err);
+        return { error: err instanceof Error ? err.message : String(err) };
     }
+}
 
-    // --- Step 2: Fetch version details using the numeric ID ---
-    const civitaiData = await fetchCivitaiModelVersion(versionId.toString(), civitaiKey);
-    if (!civitaiData) return { error: 'Model not found on Civitai' };
-
-    // --- Step 3: Extract and save images/tags/prompts/notes ---
-    const images = (civitaiData.images || []).map((img: any) => ({
-        url: img.url,
-        prompt: img.meta?.prompt || '',
-        negativePrompt: img.meta?.negativePrompt || '',
-        width: img.width,
-        height: img.height,
-        seed: img.meta?.seed,
-        nsfwLevel: img.nsfwLevel,
-    }));
-
-    const tags = Array.isArray(civitaiData.trainedWords) ? civitaiData.trainedWords : [];
-    const userNote = civitaiData.description || (civitaiData.model?.description ?? '');
-
-    if (userNote) await setUserNote(model_hash, userNote);
-    if (tags && tags.length) {
-        for (const tag of tags) await addTag(model_hash, tag);
+// Helper: fetch model version info by hash
+async function fetchModelVersionByHash(hash: string, apiKey?: string): Promise<any | null> {
+    const url = `https://civitai.com/api/v1/model-versions/by-hash/${hash}`;
+    const headers: any = {};
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    try {
+        const response = await axios.get(url, { headers });
+        return response.data;
+    } catch (err: any) {
+        if (err.response?.status === 404) return null;
+        throw err;
     }
-
-    for (let i = 0; i < Math.min(images.length, 25); i++) {
-        await saveModelImage(model_hash, images[i].url, i, images[i]);
-    }
-
-    // --- Step 4: Optionally, return extracted data for UI update ---
-    return {
-        civitaiData,
-        images,
-        tags,
-        userNote,
-        civitai_version_id: versionId,
-    };
 }

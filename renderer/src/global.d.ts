@@ -23,6 +23,10 @@ declare global {
             onScanProgress: (callback: (event: any, data: any) => void) => void;
             removeScanProgress: (callback: (event: any, data: any) => void) => void;
             cancelScan: () => Promise<void>;
+            toggleFavoriteModel: (modelHash: string) => Promise<void>;
+            getModelByHash: (modelHash: string) => Promise<any>;
+            updateHashMap: () => Promise<{ success: boolean; error?: string }>;
+            reenrichAllModels: () => Promise<any>;
             // ...add any other APIs you expose
         };
     }

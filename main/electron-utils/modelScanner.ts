@@ -135,7 +135,7 @@ export async function scanAndImportModels(
                                 status: 'enriching'
                             });
                         }
-                        await enrichModelFromAPI(hash, civitaiKey, hfKey);
+                        await enrichModelFromAPI(hash);
                         if (webContentsInstance) {
                             webContentsInstance.send('scan-progress', {
                                 current: scannedCount,

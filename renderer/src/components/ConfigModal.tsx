@@ -1,3 +1,5 @@
+// renderer/src/components/ConfigModal.tsx
+
 import React, { useEffect, useState } from 'react';
 
 type ConfigModalProps = {
@@ -10,6 +12,8 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [civitaiKey, setCivitaiKey] = useState('');
     const [huggingfaceKey, setHuggingfaceKey] = useState('');
     const [savingKeys, setSavingKeys] = useState(false);
+    const [updating, setUpdating] = useState(false);
+    const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
     // Fetch initial config values
     useEffect(() => {
@@ -23,7 +27,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         })();
     }, []);
 
-    // Add a new scan path (drive letter, UNC, or folder)
+    // Add a new scan path
     const handleAddPath = async () => {
         const folder = await window.electronAPI.selectFolder();
         if (!folder) return;
@@ -48,11 +52,28 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         setSavingKeys(false);
     };
 
+    // Re-enrich All Models
+    const handleReenrichAll = async () => {
+        setUpdating(true);
+        setUpdateStatus(null);
+        try {
+            const res = await window.electronAPI.reenrichAllModels();
+            if (res.success) {
+                setUpdateStatus('All models have been re-enriched!');
+            } else {
+                setUpdateStatus(`Failed: ${res.error || 'Unknown error'}`);
+            }
+        } catch (err) {
+            setUpdateStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        setUpdating(false);
+    };
+
     return (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
             <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto relative">
                 <button
-                    className="absolute top-4 right-6 text-2xl text-muted hover:text-primary"
+                    className="absolute top-4 right-6 text-2xl text-zinc-500 dark:text-zinc-300 hover:text-primary"
                     onClick={onClose}
                     title="Close"
                 >&times;</button>
@@ -62,7 +83,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                     <div className="font-semibold mb-2">Model Scan Folders</div>
                     <ul className="mb-2">
                         {scanPaths.length === 0 && (
-                            <li className="text-muted">No folders configured yet.</li>
+                            <li className="text-zinc-500 dark:text-zinc-300">No folders configured yet.</li>
                         )}
                         {scanPaths.map(path =>
                             <li key={path} className="flex items-center justify-between group">
@@ -100,7 +121,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                 <div className="mb-6">
                     <div className="font-semibold mb-2">API Keys</div>
                     <label className="block mb-2">
-                        <span className="text-sm text-muted">Civitai</span>
+                        <span className="text-sm text-zinc-500 dark:text-zinc-300">Civitai</span>
                         <input
                             type="text"
                             className="mt-1 p-2 rounded border border-border bg-muted w-full"
@@ -111,7 +132,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         />
                     </label>
                     <label className="block mb-2">
-                        <span className="text-sm text-muted">Hugging Face</span>
+                        <span className="text-sm text-zinc-500 dark:text-zinc-300">Hugging Face</span>
                         <input
                             type="text"
                             className="mt-1 p-2 rounded border border-border bg-muted w-full"
@@ -128,6 +149,26 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                     >
                         {savingKeys ? 'Saving...' : 'Save API Keys'}
                     </button>
+                </div>
+
+                {/* Re-enrich All Models Button */}
+                <div className="mb-2 pt-2 border-t border-border">
+                    <div className="font-semibold mb-2">Maintenance</div>
+                    <button
+                        onClick={handleReenrichAll}
+                        disabled={updating}
+                        className="bg-primary text-white px-4 py-2 rounded font-semibold shadow hover:bg-primary-dark"
+                    >
+                        {updating ? 'Re-enriching All Models…' : 'Re-enrich All Models'}
+                    </button>
+                    {updateStatus && (
+                        <div className={`mt-2 text-sm ${updateStatus.startsWith('Failed') ? 'text-red-500' : 'text-green-600'}`}>
+                            {updateStatus}
+                        </div>
+                    )}
+                    <div className="text-xs text-zinc-500 dark:text-zinc-300 mt-1">
+                        Use this to refresh tags, images, and info for every scanned model.
+                    </div>
                 </div>
             </div>
         </div>

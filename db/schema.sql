@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS tags (
 -- Table: user_notes
 CREATE TABLE IF NOT EXISTS user_notes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    model_hash      TEXT NOT NULL,
+    model_hash      TEXT UNIQUE,
     note            TEXT,
     created_at      TEXT NOT NULL,
     updated_at      TEXT,

@@ -19,8 +19,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addTag: async (model_hash: string, tag: string) => ipcRenderer.invoke('addTag', model_hash, tag),
     removeTag: async (model_hash: string, tag: string) => ipcRenderer.invoke('removeTag', model_hash, tag),
     selectFolder: async () => ipcRenderer.invoke('selectFolder'),
-    onScanProgress: (callback: (...args: any[]) => void) => ipcRenderer.on('scan-progress', callback),
-    removeScanProgress: (callback: (...args: any[]) => void) => ipcRenderer.removeListener('scan-progress', callback),
-
+    onScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.on('scan-progress', callback),
+    removeScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.removeListener('scan-progress', callback),
     cancelScan: () => ipcRenderer.invoke('cancelScan'),
+    toggleFavoriteModel: (modelHash: string) => ipcRenderer.invoke('toggleFavoriteModel', modelHash),
+    getModelByHash: (modelHash: string) => ipcRenderer.invoke('getModelByHash', modelHash),
+    updateHashMap: async () => await ipcRenderer.invoke('update-hash-map'),
+    reenrichAllModels: () => ipcRenderer.invoke('reenrichAllModels'),
 });
