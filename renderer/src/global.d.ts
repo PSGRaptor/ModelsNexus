@@ -1,33 +1,44 @@
 // renderer/src/global.d.ts
 
-export {};
+import type { IImageMeta } from './types';
 
 declare global {
     interface Window {
         electronAPI: {
+            getImageMetadata: (path: string) => Promise<IImageMeta>;
+
+            getAppVersion: () => Promise<string>;
+
             getAllModels: () => Promise<any[]>;
+            getAllModelsWithCover: () => Promise<any[]>;
             scanAndImportModels: () => Promise<any[]>;
             getAllScanPaths: () => Promise<any[]>;
             addScanPath: (path: string) => Promise<any[]>;
-            removeScanPath: (path: string) => Promise<any[]>;
+            removeScanPath: (path: string) => Promise<void>;
+            selectFolder: () => Promise<string>;
+
             getApiKey: (provider: string) => Promise<string>;
             setApiKey: (provider: string, apiKey: string) => Promise<void>;
+
+            saveModelImage: (modelHash: string, imageUrl: string) => Promise<any>;
+            getModelImages: (modelHash: string) => Promise<any[]>;
+            getModelByHash: (modelHash: string) => Promise<any>;
+            enrichModelFromAPI: (modelHash: string) => Promise<void>;
+            reenrichAllModels: () => Promise<any>;
+            updateHashMap: () => Promise<any>;
+
             getUserNote: (modelHash: string) => Promise<string>;
             setUserNote: (modelHash: string, note: string) => Promise<void>;
-            getTags: (modelHash: string) => Promise<{ tag: string }[]>;
+            getTags: (modelHash: string) => Promise<any[]>;
             addTag: (modelHash: string, tag: string) => Promise<void>;
             removeTag: (modelHash: string, tag: string) => Promise<void>;
-            getModelImages: (modelHash: string) => Promise<string[]>;
-            enrichModelFromAPI: (modelHash: string) => Promise<any>;
-            selectFolder: () => Promise<string | null>;
-            onScanProgress: (callback: (event: any, data: any) => void) => void;
-            removeScanProgress: (callback: (event: any, data: any) => void) => void;
-            cancelScan: () => Promise<void>;
+
             toggleFavoriteModel: (modelHash: string) => Promise<void>;
-            getModelByHash: (modelHash: string) => Promise<any>;
-            updateHashMap: () => Promise<{ success: boolean; error?: string }>;
-            reenrichAllModels: () => Promise<any>;
-            // ...add any other APIs you expose
+            cancelScan: () => Promise<void>;
+            onScanProgress: (callback: (event: any, ...args: any[]) => void) => void;
+            removeScanProgress: (callback: (event: any, ...args: any[]) => void) => void;
         };
     }
 }
+
+export {};

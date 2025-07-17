@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Node",
     "esModuleInterop": true,
@@ -10,19 +10,29 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "baseUrl": "."
+    "baseUrl": ".",
+    "typeRoots": ["src", "node_modules/@types"]
   },
   "include": [
     "main",
     "renderer/src",
     "renderer/src/components",
     "db",
-    "api"
+    "api",
+    "src"
   ],
   "exclude": [
     "node_modules",
     "dist",
     "build",
     "out"
+  ],
+  "overrides": [
+    {
+      "files": ["main/preload.ts"],
+      "compilerOptions": {
+        "module": "CommonJS"
+      }
+    }
   ]
 }

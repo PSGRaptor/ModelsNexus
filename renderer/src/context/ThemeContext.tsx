@@ -1,50 +1,52 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-type Theme = 'light' | 'dark' | 'auto';
-type ThemeContextType = {
+export type Theme = 'light' | 'dark' | 'auto';
+
+export interface ThemeContextType {
     theme: Theme;
     setTheme: (theme: Theme) => void;
     toggleTheme: () => void;
-};
+}
 
-export const ThemeContext = createContext<ThemeContextType>({
-    theme: 'auto',
-    setTheme: () => {},
-    toggleTheme: () => {},
-});
+const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [theme, setTheme] = useState<Theme>('auto');
 
+    // Load persisted theme
     useEffect(() => {
-        // Load persisted theme on mount
-        const stored = window.localStorage.getItem('theme') as Theme | null;
-        if (stored) setTheme(stored);
+        try {
+            const stored = localStorage.getItem('theme') as Theme | null;
+            if (stored === 'light' || stored === 'dark' || stored === 'auto') {
+                setTheme(stored);
+            }
+        } catch {
+            /* ignore */
+        }
     }, []);
 
+    // Apply theme changes
     useEffect(() => {
-        // Set class on <html> element for Tailwind/Dark mode
-        const html = document.documentElement;
-        const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (
-            theme === 'dark' ||
-            (theme === 'auto' && systemDark)
-        ) {
-            html.classList.add('dark');
-        } else {
-            html.classList.remove('dark');
+        const root = document.documentElement;
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        const isDark = theme === 'dark' || (theme === 'auto' && systemPrefersDark);
+        root.classList.toggle('dark', isDark);
+        root.classList.toggle('light', !isDark); // optional for explicit styling hooks
+
+        try {
+            localStorage.setItem('theme', theme);
+        } catch {
+            /* ignore */
         }
-        window.localStorage.setItem('theme', theme);
     }, [theme]);
 
-    // Added: Toggle between light/dark/auto (cycles if needed)
+    // Cycle theme: light → dark → auto → light...
     const toggleTheme = () => {
-        setTheme((curr) =>
-            curr === 'light'
-                ? 'dark'
-                : curr === 'dark'
-                    ? 'auto'
-                    : 'light'
+        setTheme((prev) =>
+            prev === 'light' ? 'dark' :
+                prev === 'dark' ? 'auto' :
+                    'light'
         );
     };
 
@@ -55,9 +57,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 };
 
-// *** Added: The recommended custom hook ***
-export function useTheme() {
+// Custom hook for convenience
+export function useTheme(): ThemeContextType {
     const ctx = useContext(ThemeContext);
-    if (!ctx) throw new Error('useTheme must be used within a ThemeProvider');
+    if (!ctx) {
+        throw new Error('useTheme must be used within ThemeProvider');
+    }
     return ctx;
 }

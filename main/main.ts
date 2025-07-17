@@ -1,18 +1,20 @@
-// main.ts
-
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath } from 'url';
 import path, { dirname } from 'path';
 import {
     getAllModels, initDb, getAllScanPaths, addScanPath, removeScanPath, getApiKey, setApiKey, updateFavorite,
-    getUserNote, setUserNote, getTags, addTag, removeTag
+    getUserNote, setUserNote, getTags, addTag, removeTag, getAllModelsWithCover
 } from '../db/db-utils.js';
 import { scanAndImportModels } from './electron-utils/modelScanner.js';
 import { saveModelImage, getModelImages } from './electron-utils/imageHandler.js';
 import { enrichModelFromAPI } from './electron-utils/metadataFetcher.js';
 import { getModelByHash } from '../db/db-utils.js';
 import { buildCivitaiHashMap } from './utils/buildCivitaiHashMap.js';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
+const execFileAsync = promisify(execFile);
+const cliPath = path.join(app.getAppPath(), 'resources', 'sd-prompt-reader-cli.exe');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -31,16 +33,16 @@ function createMainWindow() {
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
-            contextIsolation: true,
+            contextIsolation: true
         },
         show: false, // Hide until ready-to-show for better UX
     });
 
-    mainWindow.loadURL(
-        process.env.NODE_ENV === 'development'
-            ? 'http://localhost:3000'
-            : `file://${path.join(__dirname, '../renderer/dist/index.html')}`
-    );
+    if (process.env.NODE_ENV === 'development') {
+        mainWindow.loadURL('http://localhost:5173');
+    } else {
+        mainWindow.loadFile(path.join(__dirname, '../renderer/dist/index.html'));
+    }
 
     mainWindow.once('ready-to-show', () => {
         mainWindow?.show();
@@ -117,7 +119,7 @@ ipcMain.handle('addScanPath', async (_event, pathStr: string) => {
     return await getAllScanPaths();
 });
 
-ipcMain.handle('selectFolder', async (event) => {
+ipcMain.handle('selectFolder', async (_event) => {
     const win = BrowserWindow.getFocusedWindow();
     const result = win
         ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
@@ -142,9 +144,8 @@ ipcMain.handle('getModelByHash', async (_event, model_hash) => {
     return await getModelByHash(model_hash);
 });
 
-ipcMain.handle('update-hash-map', async () => {
+ipcMain.handle('updateHashMap', async () => {
     try {
-        // Optionally, send progress updates using events if you want
         await buildCivitaiHashMap();
         return { success: true };
     } catch (err) {
@@ -165,6 +166,26 @@ ipcMain.handle('reenrichAllModels', async () => {
     } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
+});
+
+ipcMain.handle('getAllModelsWithCover', async () => {
+    return await getAllModelsWithCover();
+});
+
+ipcMain.handle('get-image-metadata', async (_e, imgPath: string) => {
+    return new Promise((resolve) => {
+        execFile(cliPath, ['-r', '-i', imgPath, '-f', 'JSON'], (err, stdout) => {
+            if (err) {
+                resolve({ error: err.message });
+            } else {
+                try {
+                    resolve(JSON.parse(stdout));
+                } catch (e) {
+                    resolve({ error: 'Failed to parse CLI output.' });
+                }
+            }
+        });
+    });
 });
 
 ipcMain.handle('getUserNote', async (_event, model_hash) => getUserNote(model_hash));

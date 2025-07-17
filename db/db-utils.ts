@@ -90,6 +90,26 @@ export async function getAllModels() {
     return db.all(`SELECT * FROM models ORDER BY date_added DESC`);
 }
 
+export async function getAllModelsWithCover() {
+    // get all models
+    const models = await db.all('SELECT * FROM models ORDER BY date_added DESC');
+    for (const model of models) {
+        // get all images for the model
+        const img = await db.get(
+            'SELECT image_path FROM images WHERE model_hash = ? ORDER BY sort_order ASC LIMIT 1',
+            model.model_hash
+        );
+        model.cover_image = img ? img.image_path : null;
+        // also get *all* images (up to 10) for preview modal
+        const allImgs = await db.all(
+            'SELECT image_path FROM images WHERE model_hash = ? ORDER BY sort_order ASC LIMIT 10',
+            model.model_hash
+        );
+        model.images = allImgs.map(i => i.image_path);
+    }
+    return models;
+}
+
 // Get all scan paths from DB
 export async function getAllScanPaths() {
     return db.all('SELECT * FROM scan_paths WHERE enabled = 1');

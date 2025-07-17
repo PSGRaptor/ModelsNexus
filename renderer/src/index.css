@@ -1,13 +1,3 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* Custom global styles (optional, for branding) */
-html, body {
-    background: red !important;
-    @apply bg-background text-foreground font-sans;
-}
-
-a {
-    @apply text-primary hover:underline;
-}
+@custom-variant dark (&:where(.dark, .dark *));

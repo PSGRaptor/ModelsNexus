@@ -1,29 +1,43 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Securely expose limited Electron APIs to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
+    // Image/Model Metadata
+    getImageMetadata: async (path: string) => await ipcRenderer.invoke('get-image-metadata', path),
+
+    // App Info
     getAppVersion: async () => ipcRenderer.invoke('get-app-version'),
+
+    // Model Data/DB
     getAllModels: async () => ipcRenderer.invoke('getAllModels'),
+    getAllModelsWithCover: async () => ipcRenderer.invoke('getAllModelsWithCover'),
     scanAndImportModels: async () => ipcRenderer.invoke('scanAndImportModels'),
     getAllScanPaths: async () => ipcRenderer.invoke('getAllScanPaths'),
     addScanPath: async (path: string) => ipcRenderer.invoke('addScanPath', path),
     removeScanPath: async (path: string) => ipcRenderer.invoke('removeScanPath', path),
+    selectFolder: async () => ipcRenderer.invoke('selectFolder'),
+
+    // API Keys
     getApiKey: async (provider: string) => ipcRenderer.invoke('getApiKey', provider),
     setApiKey: async (provider: string, apiKey: string) => ipcRenderer.invoke('setApiKey', provider, apiKey),
+
+    // Model Images and Details
     saveModelImage: async (modelHash: string, imageUrl: string) => ipcRenderer.invoke('saveModelImage', modelHash, imageUrl),
     getModelImages: async (modelHash: string) => ipcRenderer.invoke('getModelImages', modelHash),
-    enrichModelFromAPI: async (model_hash: string) => ipcRenderer.invoke('enrichModelFromAPI', model_hash),
-    getUserNote: async (model_hash: string) => ipcRenderer.invoke('getUserNote', model_hash),
-    setUserNote: async (model_hash: string, note: string) => ipcRenderer.invoke('setUserNote', model_hash, note),
-    getTags: async (model_hash: string) => ipcRenderer.invoke('getTags', model_hash),
-    addTag: async (model_hash: string, tag: string) => ipcRenderer.invoke('addTag', model_hash, tag),
-    removeTag: async (model_hash: string, tag: string) => ipcRenderer.invoke('removeTag', model_hash, tag),
-    selectFolder: async () => ipcRenderer.invoke('selectFolder'),
+    getModelByHash: async (modelHash: string) => ipcRenderer.invoke('getModelByHash', modelHash),
+    enrichModelFromAPI: async (modelHash: string) => ipcRenderer.invoke('enrichModelFromAPI', modelHash),
+    reenrichAllModels: async () => ipcRenderer.invoke('reenrichAllModels'),
+    updateHashMap: async () => ipcRenderer.invoke('updateHashMap'),
+
+    // User Notes/Tags
+    getUserNote: async (modelHash: string) => ipcRenderer.invoke('getUserNote', modelHash),
+    setUserNote: async (modelHash: string, note: string) => ipcRenderer.invoke('setUserNote', modelHash, note),
+    getTags: async (modelHash: string) => ipcRenderer.invoke('getTags', modelHash),
+    addTag: async (modelHash: string, tag: string) => ipcRenderer.invoke('addTag', modelHash, tag),
+    removeTag: async (modelHash: string, tag: string) => ipcRenderer.invoke('removeTag', modelHash, tag),
+
+    // Favorites/Scanning/Progress
+    toggleFavoriteModel: async (modelHash: string) => ipcRenderer.invoke('toggleFavoriteModel', modelHash),
+    cancelScan: async () => ipcRenderer.invoke('cancelScan'),
     onScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.on('scan-progress', callback),
     removeScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.removeListener('scan-progress', callback),
-    cancelScan: () => ipcRenderer.invoke('cancelScan'),
-    toggleFavoriteModel: (modelHash: string) => ipcRenderer.invoke('toggleFavoriteModel', modelHash),
-    getModelByHash: (modelHash: string) => ipcRenderer.invoke('getModelByHash', modelHash),
-    updateHashMap: async () => await ipcRenderer.invoke('update-hash-map'),
-    reenrichAllModels: () => ipcRenderer.invoke('reenrichAllModels'),
 });

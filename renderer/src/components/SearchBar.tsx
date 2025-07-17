@@ -1,19 +1,31 @@
+// renderer/src/components/SearchBar.tsx
+
 import React from 'react';
 
-type SearchBarProps = {
+export type SearchBarProps = {
     value: string;
-    onChange: (value: string) => void;
+    onChange: (v: string) => void;
     placeholder?: string;
+    inputClassName?: string; // <-- Add this line
 };
 
-const SearchBar: React.FC<SearchBarProps> = ({ value, onChange, placeholder }) => (
+const SearchBar: React.FC<SearchBarProps> = ({
+                                                 value,
+                                                 onChange,
+                                                 placeholder = 'Search...',
+                                                 inputClassName = '',      // <-- Add this line
+                                             }) => (
     <input
         type="text"
-        className="w-full p-2 mb-4 rounded bg-muted border border-border shadow-inner focus:outline-none focus:ring-2 focus:ring-primary"
         value={value}
         onChange={e => onChange(e.target.value)}
-        placeholder={placeholder || 'Search models...'}
-        aria-label="Search models"
+        placeholder={placeholder}
+        className={
+            inputClassName ||
+            "w-full p-2 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary transition"
+        }
+        autoComplete="off"
+        spellCheck={false}
     />
 );
 

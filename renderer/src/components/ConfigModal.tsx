@@ -1,9 +1,16 @@
 // renderer/src/components/ConfigModal.tsx
 
 import React, { useEffect, useState } from 'react';
+import { useTheme, Theme } from '../context/ThemeContext';
 
 type ConfigModalProps = {
     onClose: () => void;
+};
+
+const THEME_LABELS: Record<Theme, string> = {
+    light: "Light",
+    dark: "Dark",
+    auto: "Auto (System)"
 };
 
 const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
@@ -14,6 +21,9 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [savingKeys, setSavingKeys] = useState(false);
     const [updating, setUpdating] = useState(false);
     const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+
+    // Theme control from context
+    const { theme, setTheme, toggleTheme } = useTheme();
 
     // Fetch initial config values
     useEffect(() => {
@@ -69,6 +79,30 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         setUpdating(false);
     };
 
+    // Theme selector for light/dark/auto
+    const renderThemeSelector = () => (
+        <div className="mb-6">
+            <div className="font-semibold mb-2">App Theme</div>
+            <div className="flex gap-2">
+                {(Object.keys(THEME_LABELS) as Theme[]).map((t) => (
+                    <button
+                        key={t}
+                        className={`px-4 py-2 rounded font-semibold border
+                          ${theme === t
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-700'
+                        }
+                          transition`}
+                        onClick={() => setTheme(t)}
+                        disabled={theme === t}
+                    >
+                        {THEME_LABELS[t]}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+
     return (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
             <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto relative">
@@ -78,6 +112,10 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                     title="Close"
                 >&times;</button>
                 <h2 className="text-2xl font-bold mb-4">Settings</h2>
+
+                {/* App Theme Selector */}
+                {renderThemeSelector()}
+
                 {/* Scan paths */}
                 <div className="mb-6">
                     <div className="font-semibold mb-2">Model Scan Folders</div>
@@ -117,6 +155,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         </button>
                     </div>
                 </div>
+
                 {/* API keys */}
                 <div className="mb-6">
                     <div className="font-semibold mb-2">API Keys</div>
