@@ -111,7 +111,7 @@ const App: React.FC = () => {
                         setSearch={setSearch}
                         onTypeFilter={setTypeFilter}
                     />
-                    <main className="flex-1 overflow-y-auto p-6 bg-zinc-50 dark:bg-stone-900 transition-colors duration-300">
+                    <main className="flex-1 overflow-y-auto p-6 bg-zinc-50 dark:bg-slate-500 transition-colors duration-300">
                         {loading
                             ? <Spinner />
                             : <ModelGrid

@@ -1,5 +1,3 @@
-// renderer/src/components/ConfigModal.tsx
-
 import React, { useEffect, useState } from 'react';
 import { useTheme, Theme } from '../context/ThemeContext';
 
@@ -23,7 +21,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
     // Theme control from context
-    const { theme, setTheme, toggleTheme } = useTheme();
+    const { theme, setTheme } = useTheme();
 
     // Fetch initial config values
     useEffect(() => {
@@ -87,10 +85,10 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                 {(Object.keys(THEME_LABELS) as Theme[]).map((t) => (
                     <button
                         key={t}
-                        className={`px-4 py-2 rounded font-semibold border
+                        className={`px-4 py-2 rounded font-semibold border text-sm
                           ${theme === t
-                            ? 'bg-primary text-white border-primary'
-                            : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-700'
+                            ? 'bg-blue-600 text-white border-blue-700 shadow'
+                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-700'
                         }
                           transition`}
                         onClick={() => setTheme(t)}
@@ -105,27 +103,27 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
 
     return (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto relative">
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto relative transition-colors">
                 <button
-                    className="absolute top-4 right-6 text-2xl text-zinc-500 dark:text-zinc-300 hover:text-primary"
+                    className="absolute top-4 right-6 text-2xl text-zinc-500 dark:text-zinc-300 hover:text-blue-600 dark:hover:text-blue-300"
                     onClick={onClose}
                     title="Close"
                 >&times;</button>
-                <h2 className="text-2xl font-bold mb-4">Settings</h2>
+                <h2 className="text-2xl font-bold mb-4 text-blue-800 dark:text-white">Settings</h2>
 
                 {/* App Theme Selector */}
                 {renderThemeSelector()}
 
                 {/* Scan paths */}
                 <div className="mb-6">
-                    <div className="font-semibold mb-2">Model Scan Folders</div>
+                    <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Model Scan Folders</div>
                     <ul className="mb-2">
                         {scanPaths.length === 0 && (
-                            <li className="text-zinc-500 dark:text-zinc-300">No folders configured yet.</li>
+                            <li className="text-zinc-500 dark:text-zinc-400">No folders configured yet.</li>
                         )}
                         {scanPaths.map(path =>
                             <li key={path} className="flex items-center justify-between group">
-                                <span>{path}</span>
+                                <span className="truncate text-zinc-800 dark:text-zinc-100">{path}</span>
                                 <button
                                     className="text-red-400 hover:text-red-600 text-xl font-bold ml-2 opacity-0 group-hover:opacity-100 transition"
                                     onClick={() => handleRemovePath(path)}
@@ -137,7 +135,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                     <div className="flex gap-2">
                         <input
                             type="text"
-                            className="flex-1 p-2 rounded border border-border bg-muted"
+                            className="flex-1 p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100"
                             placeholder="Add new folder or \\network\share"
                             value={newPath}
                             onChange={e => setNewPath(e.target.value)}
@@ -148,7 +146,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         />
                         <button
                             type="button"
-                            className="bg-primary text-white px-3 py-1 rounded"
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold"
                             onClick={handleAddPath}
                         >
                             Add
@@ -158,12 +156,12 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
 
                 {/* API keys */}
                 <div className="mb-6">
-                    <div className="font-semibold mb-2">API Keys</div>
+                    <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">API Keys</div>
                     <label className="block mb-2">
                         <span className="text-sm text-zinc-500 dark:text-zinc-300">Civitai</span>
                         <input
                             type="text"
-                            className="mt-1 p-2 rounded border border-border bg-muted w-full"
+                            className="mt-1 p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 w-full"
                             value={civitaiKey}
                             onChange={e => setCivitaiKey(e.target.value)}
                             autoComplete="off"
@@ -174,7 +172,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         <span className="text-sm text-zinc-500 dark:text-zinc-300">Hugging Face</span>
                         <input
                             type="text"
-                            className="mt-1 p-2 rounded border border-border bg-muted w-full"
+                            className="mt-1 p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 w-full"
                             value={huggingfaceKey}
                             onChange={e => setHuggingfaceKey(e.target.value)}
                             autoComplete="off"
@@ -182,7 +180,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         />
                     </label>
                     <button
-                        className={`bg-primary text-white px-4 py-2 rounded hover:bg-primary-dark ${savingKeys ? 'opacity-60 pointer-events-none' : ''}`}
+                        className={`bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold mt-1 ${savingKeys ? 'opacity-60 pointer-events-none' : ''}`}
                         onClick={handleSaveKeys}
                         disabled={savingKeys}
                     >
@@ -191,12 +189,12 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                 </div>
 
                 {/* Re-enrich All Models Button */}
-                <div className="mb-2 pt-2 border-t border-border">
-                    <div className="font-semibold mb-2">Maintenance</div>
+                <div className="mb-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">
+                    <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Maintenance</div>
                     <button
                         onClick={handleReenrichAll}
                         disabled={updating}
-                        className="bg-primary text-white px-4 py-2 rounded font-semibold shadow hover:bg-primary-dark"
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold shadow"
                     >
                         {updating ? 'Re-enriching All Models…' : 'Re-enrich All Models'}
                     </button>

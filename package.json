@@ -1,14 +1,16 @@
 {
   "name": "modelsnexus",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "main": "main/main.js",
   "type": "module",
   "scripts": {
-    "start": "yarn tsc && electron-forge start",
-    "build": "yarn tsc",
-    "packagecls": "electron-forge package",
-    "make": "electron-forge make",
+    "build:renderer": "cd renderer && yarn install && yarn build",
+    "build:main": "tsc -p .",
+    "build": "yarn build:renderer && yarn build:main",
+    "package": "yarn build && electron-forge package",
+    "make": "yarn build && electron-forge make",
+    "start": "yarn build && electron-forge start",
     "lint": "eslint . --ext .ts,.tsx",
     "update-hashmap": "ts-node main/utils/buildCivitaiHashMap.ts",
     "clean:win": "for /r %i in (*.js *.js.map) do @(if /i not \"%~nxi\"==\"postcss.config.js\" if /i not \"%~nxi\"==\"tailwind.config.js\" if /i not \"%~nxi\"==\"vite.config.js\" if /i not \"%~fi\"==\"%cd%\\node_modules\\%~nxi\" if /i not \"%~fi\"==\"%cd%\\dist\\%~nxi\" del \"%~fi\")"
@@ -24,7 +26,8 @@
     "cheerio": "^1.1.0",
     "electron-squirrel-startup": "^1.0.1",
     "fs-extra": "^11.3.0",
-    "react-icons": "^5.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7"
   },
@@ -39,17 +42,52 @@
     "@electron/fuses": "^1.8.0",
     "@eslint/js": "^9.30.1",
     "@types/fs-extra": "^11.0.4",
+    "@vitejs/plugin-react": "^4.6.0",
     "electron": "^37.2.1",
     "eslint": "^9.30.1",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
     "rimraf": "^6.0.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vite": "6"
   },
   "resolutions": {
     "@c4312/blake3-internal": "3.0.0",
     "@c4312/blake3-native": "3.0.0",
     "blake3-wasm": "2.1.5"
+  },
+  "forge": {
+  "asar": true,
+  "plugins": [
+     {
+          "name": "@electron-forge/plugin-auto-unpack-natives",
+          "config": {}
+     }
+      ],
+     "makers": [
+     {
+         "name": "@electron-forge/maker-squirrel",
+         "config": {
+         "name": "ModelsNexus",
+         "setupExe": "ModelsNexus-Setup.exe",
+         "shortcutName": "Models Nexus",
+         "title": "Models Nexus Installer",
+         "setupIcon": "./assets/logo.png",
+         "loadingGif": "./assets/logo.png"
+       }
+     },
+     {
+       "name": "@electron-forge/maker-zip"
+     },
+     {
+       "name": "@electron-forge/maker-deb",
+       "config": {}
+     },
+     {
+       "name": "@electron-forge/maker-rpm",
+       "config": {}
+      }
+    ]
   }
 }

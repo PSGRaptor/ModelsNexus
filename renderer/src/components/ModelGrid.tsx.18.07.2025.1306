@@ -86,7 +86,7 @@ export function ModelGrid({
                     No models found. Click “Update Scan” or add model folders.
                 </div>
             ) : (
-                <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+                <div className="scroll-mx-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ">
                     {models.map(model => {
                         // Determine main and thumbnail images
                         const mainImage =
