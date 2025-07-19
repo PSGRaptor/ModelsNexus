@@ -27,6 +27,8 @@ export async function updateFavorite(model_hash: string, is_favorite: number) {
     await db.run('UPDATE models SET is_favorite = ? WHERE model_hash = ?', is_favorite, model_hash);
 }
 
+// File: db/db-utils.ts
+
 export async function initDb() {
     db = await open({
         filename: getDbPath(),
@@ -35,21 +37,71 @@ export async function initDb() {
     // Apply schema if new
     await db.exec(await fs.readFile(path.join(__dirname, 'schema.sql'), 'utf-8'));
 
-    // --- SAFE AUTO-MIGRATION: Add civitai_version_id column if missing ---
-    const columns = await db.all("PRAGMA table_info(models)");
-    if (!columns.some((c: any) => c.name.toLowerCase() === 'civitai_version_id')) {
+    // ...existing migrations for civitai_version_id and model_name...
+
+    let columns = await db.all("PRAGMA table_info(models)");
+
+    // Add model_name column if missing (already present in your last step)
+    if (!columns.some((c: any) => c.name.toLowerCase() === 'model_name')) {
         try {
-            await db.exec(`ALTER TABLE models ADD COLUMN civitai_version_id INTEGER`);
-            console.log('Added civitai_version_id column to models table');
+            await db.exec(`ALTER TABLE models ADD COLUMN model_name TEXT`);
+            console.log('Added model_name column to models table');
         } catch (e: any) {
             if (/duplicate column/i.test(e.message)) {
-                console.warn('civitai_version_id column already exists in models table');
+                console.warn('model_name column already exists in models table');
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    // --- Add prompt_positive column if missing ---
+    columns = await db.all("PRAGMA table_info(models)");
+    if (!columns.some((c: any) => c.name.toLowerCase() === 'prompt_positive')) {
+        try {
+            await db.exec(`ALTER TABLE models ADD COLUMN prompt_positive TEXT`);
+            console.log('Added prompt_positive column to models table');
+        } catch (e: any) {
+            if (/duplicate column/i.test(e.message)) {
+                console.warn('prompt_positive column already exists in models table');
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    // --- Add prompt_negative column if missing ---
+    columns = await db.all("PRAGMA table_info(models)");
+    if (!columns.some((c: any) => c.name.toLowerCase() === 'prompt_negative')) {
+        try {
+            await db.exec(`ALTER TABLE models ADD COLUMN prompt_negative TEXT`);
+            console.log('Added prompt_negative column to models table');
+        } catch (e: any) {
+            if (/duplicate column/i.test(e.message)) {
+                console.warn('prompt_negative column already exists in models table');
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    // --- Add notes column if missing ---
+    columns = await db.all("PRAGMA table_info(models)");
+    if (!columns.some((c: any) => c.name.toLowerCase() === 'notes')) {
+        try {
+            await db.exec(`ALTER TABLE models ADD COLUMN notes TEXT`);
+            console.log('Added notes column to models table');
+        } catch (e: any) {
+            if (/duplicate column/i.test(e.message)) {
+                console.warn('notes column already exists in models table');
             } else {
                 throw e;
             }
         }
     }
 }
+
+
 
 // Update Civitai model info for a given model hash
 export async function updateCivitaiModelInfo(model_hash: string, civitai_id: string, civitai_version_id: string, model_type: string, base_model: string, version: string, civitai_url: string) {
@@ -84,6 +136,39 @@ export async function addModel(model: {
         model.file_name, model.model_hash, model.file_path, model.model_type || null, model.version || null, model.base_model || null, model.file_size, model.date_added
     );
 }
+
+// Add/edit/update the main model record in the "models" table
+// In db/db-utils.ts
+export async function updateModel(model: any) {
+    if (!model || !model.model_hash) {
+        throw new Error("updateModel: No model object or missing model_hash");
+    }
+    // fallback for missing model_name
+    const modelName = model.model_name ?? model.file_name ?? "";
+
+    // Example SQL, adjust for your columns:
+    await db.run(`
+                UPDATE models SET
+                                  model_name = ?,
+                                  model_type = ?,
+                                  base_model = ?,
+                                  version = ?,
+                                  prompt_positive = ?,
+                                  prompt_negative = ?,
+                                  notes = ?
+                WHERE model_hash = ?`,
+        modelName,
+        model.model_type ?? "",
+        model.base_model ?? "",
+        model.version ?? "",
+        model.prompt_positive ?? "",
+        model.prompt_negative ?? "",
+        model.notes ?? "",
+        model.model_hash
+    );
+}
+
+
 
 // Fetch all models from DB
 export async function getAllModels() {

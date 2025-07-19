@@ -37,6 +37,7 @@ declare global {
             cancelScan: () => Promise<void>;
             onScanProgress: (callback: (event: any, ...args: any[]) => void) => void;
             removeScanProgress: (callback: (event: any, ...args: any[]) => void) => void;
+            updateModel: (modelData: any) => Promise<{ success: boolean; error?: string }>;
         };
     }
 }

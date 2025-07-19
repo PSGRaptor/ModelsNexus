@@ -52,7 +52,7 @@ export function ModelGrid({
                         ? m.cover_image.startsWith('file://') || m.cover_image.startsWith('/')
                             ? m.cover_image
                             : `file://${m.cover_image}`
-                        : '/assets/placeholder-model.png',
+                        : '/images/placeholder-model.png',
                 ]
         )
         .flat();
@@ -64,7 +64,7 @@ export function ModelGrid({
         folderFiles: string[];
     }>({ open: false, idx: 0, meta: {}, folderFiles: [] });
 
-    const placeholder = '/assets/placeholder-model.png';
+    const placeholder = '/images/placeholder-model.png';
 
     // Click handler for preview/thumbnail images
     const handleThumbnailClick = async (filePath: string, index: number) => {

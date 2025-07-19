@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url';
 import path, { dirname } from 'path';
 import {
     getAllModels, initDb, getAllScanPaths, addScanPath, removeScanPath, getApiKey, setApiKey, updateFavorite,
-    getUserNote, setUserNote, getTags, addTag, removeTag, getAllModelsWithCover
+    getUserNote, setUserNote, getTags, addTag, removeTag, getAllModelsWithCover, updateModel
 } from '../db/db-utils.js';
 import { scanAndImportModels } from './electron-utils/modelScanner.js';
 import { saveModelImage, getModelImages } from './electron-utils/imageHandler.js';
@@ -68,8 +68,59 @@ app.on('activate', () => {
 /**
  * IPC handlers for secure communications (expand as needed)
  */
-ipcMain.handle('get-app-version', async () => app.getVersion());
 
+// ----------- EDIT MODEL HANDLER -------------
+// File: main/main.ts or wherever your main process IPC is
+
+ipcMain.handle('updateModel', async (_event, data) => {
+    // data = { model, tagsToAdd, tagsToRemove, userNote }
+    try {
+        // Log all incoming data for debugging
+        console.log('[updateModel] called with:');
+        console.log('  model:', JSON.stringify(data?.model, null, 2));
+        console.log('  tagsToAdd:', JSON.stringify(data?.tagsToAdd));
+        console.log('  tagsToRemove:', JSON.stringify(data?.tagsToRemove));
+        console.log('  userNote:', JSON.stringify(data?.userNote));
+
+        // Basic validation
+        if (!data?.model || !data.model.model_hash) {
+            console.error('[updateModel] Invalid or missing model object!', data?.model);
+            return { success: false, error: 'Invalid or missing model object in updateModel' };
+        }
+
+        await updateModel(data.model);
+
+        if (Array.isArray(data.tagsToAdd)) {
+            for (const tag of data.tagsToAdd) {
+                await addTag(data.model.model_hash, tag);
+                console.log(`[updateModel] Added tag "${tag}" to model ${data.model.model_hash}`);
+            }
+        }
+        if (Array.isArray(data.tagsToRemove)) {
+            for (const tag of data.tagsToRemove) {
+                await removeTag(data.model.model_hash, tag);
+                console.log(`[updateModel] Removed tag "${tag}" from model ${data.model.model_hash}`);
+            }
+        }
+        if (typeof data.userNote === "string") {
+            await setUserNote(data.model.model_hash, data.userNote);
+            console.log(`[updateModel] Set note for model ${data.model.model_hash}:`, data.userNote);
+        }
+
+        // Optional: log image changes (implement if you wish)
+        // if (Array.isArray(data.customImagesToAdd)) { ... }
+
+        return { success: true };
+    } catch (err: any) {
+        // Detailed error logging, including model hash if possible
+        console.error('[updateModel] error:', err, 'Model:', data?.model?.model_hash);
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+});
+
+
+// ------------ Other handlers ---------------
+ipcMain.handle('get-app-version', async () => app.getVersion());
 ipcMain.handle('getAllModels', async () => await getAllModels());
 
 // Add IPC handler to scan and import models
@@ -194,3 +245,4 @@ ipcMain.handle('getTags', async (_event, model_hash) => getTags(model_hash));
 ipcMain.handle('addTag', async (_event, model_hash, tag) => addTag(model_hash, tag));
 ipcMain.handle('removeTag', async (_event, model_hash, tag) => removeTag(model_hash, tag));
 
+// ---- END OF FILE ----

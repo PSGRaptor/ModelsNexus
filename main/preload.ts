@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAppVersion: async () => ipcRenderer.invoke('get-app-version'),
 
     // Model Data/DB
+
     getAllModels: async () => ipcRenderer.invoke('getAllModels'),
     getAllModelsWithCover: async () => ipcRenderer.invoke('getAllModelsWithCover'),
     scanAndImportModels: async () => ipcRenderer.invoke('scanAndImportModels'),
@@ -15,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addScanPath: async (path: string) => ipcRenderer.invoke('addScanPath', path),
     removeScanPath: async (path: string) => ipcRenderer.invoke('removeScanPath', path),
     selectFolder: async () => ipcRenderer.invoke('selectFolder'),
+    updateModel: async (modelData: any) => await ipcRenderer.invoke('updateModel', modelData),
 
     // API Keys
     getApiKey: async (provider: string) => ipcRenderer.invoke('getApiKey', provider),

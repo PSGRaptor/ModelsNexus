@@ -1,7 +1,7 @@
 {
   "name": "modelsnexus",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "main": "main/main.js",
   "type": "module",
   "scripts": {
@@ -17,8 +17,7 @@
   },
   "dependencies": {
     "@c4312/blake3-internal": "^3.0.0",
-    "@c4312/blake3-native": "^3.0.0",
-    "@emotion/react": "^11.14.0",
+    "@c4312/blake3-native": "^3.0.0",    "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/material": "^7.2.0",
     "axios": "^1.10.0",
@@ -58,35 +57,35 @@
     "blake3-wasm": "2.1.5"
   },
   "forge": {
-  "asar": true,
-  "plugins": [
-     {
-          "name": "@electron-forge/plugin-auto-unpack-natives",
-          "config": {}
-     }
-      ],
-     "makers": [
-     {
-         "name": "@electron-forge/maker-squirrel",
-         "config": {
-         "name": "ModelsNexus",
-         "setupExe": "ModelsNexus-Setup.exe",
-         "shortcutName": "Models Nexus",
-         "title": "Models Nexus Installer",
-         "setupIcon": "./assets/logo.png",
-         "loadingGif": "./assets/logo.png"
-       }
-     },
-     {
-       "name": "@electron-forge/maker-zip"
-     },
-     {
-       "name": "@electron-forge/maker-deb",
-       "config": {}
-     },
-     {
-       "name": "@electron-forge/maker-rpm",
-       "config": {}
+    "asar": true,
+    "plugins": [
+      {
+        "name": "@electron-forge/plugin-auto-unpack-natives",
+        "config": {}
+      }
+    ],
+    "makers": [
+      {
+        "name": "@electron-forge/maker-squirrel",
+        "config": {
+          "name": "ModelsNexus",
+          "setupExe": "ModelsNexus-Setup.exe",
+          "shortcutName": "Models Nexus",
+          "title": "Models Nexus Installer",
+          "setupIcon": "./assets/logo.png",
+          "loadingGif": "./assets/logo.png"
+        }
+      },
+      {
+        "name": "@electron-forge/maker-zip"
+      },
+      {
+        "name": "@electron-forge/maker-deb",
+        "config": {}
+      },
+      {
+        "name": "@electron-forge/maker-rpm",
+        "config": {}
       }
     ]
   }
