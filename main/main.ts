@@ -1,8 +1,9 @@
 // File: main/main.ts
-
+import fs from 'fs/promises';
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath } from 'url';
 import path, { dirname } from 'path';
+import { updateModelMainImage } from '../db/db-utils.js';
 import {
     getAllModels,
     initDb,
@@ -150,6 +151,12 @@ ipcMain.handle('scanAndImportModels', async () => {
     if (!win) throw new Error('No window for scan-progress');
     return scanAndImportModels(scanPaths.map(p => p.path), win.webContents, () => scanCancelled);
 });
+
+ipcMain.handle('cancelScan', async () => {
+    scanCancelled = true;
+    return { success: true };
+});
+
 ipcMain.handle('getAllScanPaths', () => getAllScanPaths());
 ipcMain.handle('addScanPath', async (_e, p: string) => {
     await addScanPath(p);
@@ -201,6 +208,35 @@ ipcMain.handle('reenrichAllModels', async () => {
 // ---- MODEL LISTING ----
 ipcMain.handle('getAllModels', () => getAllModels());
 ipcMain.handle('getAllModelsWithCover', () => getAllModelsWithCover());
+
+// main/main.ts
+
+ipcMain.handle('selectModelMainImage', async (_e, modelHash: string) => {
+    if (!mainWindow) throw new Error('No window to attach dialog');
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Main Image for Model',
+        properties: ['openFile'],
+        filters: [{ name: 'Images', extensions: ['png','jpg','jpeg','webp'] }],
+    });
+    if (canceled || filePaths.length === 0) {
+        return { canceled: true };
+    }
+
+    const src = filePaths[0];
+    const destDir = path.join(app.getPath('userData'), 'modelImages');
+    await fs.mkdir(destDir, { recursive: true });
+    const ext = path.extname(src);
+    const destName = `${modelHash}${ext}`;
+    const destPath = path.join(destDir, destName);
+    await fs.copyFile(src, destPath);
+
+    // store with file:// so renderer can load it directly
+    const fileUrl = `file://${destPath}`;
+    await updateModelMainImage(modelHash, fileUrl);
+
+    return { canceled: false, path: fileUrl };
+});
+
 
 // ---- IMAGE METADATA via external CLI ----
 ipcMain.handle('get-image-metadata', (_e, imgPath: string) =>

@@ -307,6 +307,35 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                     {apiEnriching ? 'Fetching…' : 'Enrich from API'}
                 </button>
 
+                <div className="mb-4">
+                    <span className="font-semibold text-gray-800 dark:text-gray-100">Main Image:</span>
+                    <div className="mt-2">
+                        {model?.main_image_path ? (
+                            <img
+                                src={model.main_image_path}
+                                alt="Main"
+                                className="max-h-40 rounded shadow border"
+                            />
+                        ) : (
+                            <div className="h-40 w-full flex items-center justify-center bg-gray-100 dark:bg-zinc-800 text-gray-500">
+                                No main image
+                            </div>
+                        )}
+                    </div>
+                    <button
+                        className="mt-2 px-3 py-1 bg-blue-600 text-white rounded text-xs flex items-center gap-1"
+                        onClick={async () => {
+                            const res = await window.electronAPI.selectModelMainImage(modelHash);
+                            if (!res.canceled && window.electronAPI.getModelByHash) {
+                                const updated = await window.electronAPI.getModelByHash(modelHash);
+                                setModel(updated);
+                            }
+                        }}
+                    >
+                        <FaEdit /> Change Main Image
+                    </button>
+                </div>
+
                 <div className="flex gap-8 flex-wrap mb-6">
                     {/* Images & Tags Column */}
                     <div className="w-1/3 min-w-[180px]">

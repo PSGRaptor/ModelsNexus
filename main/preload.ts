@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     // Image/Model Metadata
     getImageMetadata: async (path: string) => await ipcRenderer.invoke('get-image-metadata', path),
-
+    selectModelMainImage: async (modelHash: string) => ipcRenderer.invoke('selectModelMainImage', modelHash),
     // App Info
     getAppVersion: async () => ipcRenderer.invoke('get-app-version'),
 
@@ -45,4 +45,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openFileDialog: (options: Electron.OpenDialogOptions) => ipcRenderer.invoke('dialog:openFileDialog', options),
 
     deleteModelImage: (hash: string, name: string) => ipcRenderer.invoke('deleteModelImage', hash, name),
+
     });

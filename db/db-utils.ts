@@ -85,6 +85,21 @@ export async function initDb() {
         }
     }
 
+    // --- Add main_image_path column if missing ---
+    columns = await db.all("PRAGMA table_info(models)");
+    if (!columns.some((c: any) => c.name.toLowerCase() === 'main_image_path')) {
+        try {
+            await db.exec(`ALTER TABLE models ADD COLUMN main_image_path TEXT`);
+            console.log('Added main_image_path column to models table');
+        } catch (e: any) {
+            if (/duplicate column/i.test(e.message)) {
+                console.warn('main_image_path column already exists in models table');
+            } else {
+                throw e;
+            }
+        }
+    }
+
     // --- Add notes column if missing ---
     columns = await db.all("PRAGMA table_info(models)");
     if (!columns.some((c: any) => c.name.toLowerCase() === 'notes')) {
@@ -168,7 +183,16 @@ export async function updateModel(model: any) {
     );
 }
 
-
+/**
+ * Set or update the main (cover) image path for a model
+ */
+export async function updateModelMainImage(model_hash: string, imagePath: string) {
+    await db.run(
+        'UPDATE models SET main_image_path = ? WHERE model_hash = ?',
+        imagePath,
+        model_hash
+    );
+}
 
 // Fetch all models from DB
 export async function getAllModels() {
@@ -176,16 +200,15 @@ export async function getAllModels() {
 }
 
 export async function getAllModelsWithCover() {
-    // get all models
     const models = await db.all('SELECT * FROM models ORDER BY date_added DESC');
     for (const model of models) {
-        // get all images for the model
+        // fall back to images table only if no main_image_path
         const img = await db.get(
             'SELECT image_path FROM images WHERE model_hash = ? ORDER BY sort_order ASC LIMIT 1',
             model.model_hash
         );
-        model.cover_image = img ? img.image_path : null;
-        // also get *all* images (up to 10) for preview modal
+        model.cover_image = model.main_image_path || (img ? img.image_path : null);
+
         const allImgs = await db.all(
             'SELECT image_path FROM images WHERE model_hash = ? ORDER BY sort_order ASC LIMIT 10',
             model.model_hash

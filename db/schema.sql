@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS models (
                                       civitai_version_id INTEGER,
                                       model_name      TEXT,              -- Added for editable model name
                                       prompt_positive TEXT,              -- Added for editable positive prompt
-                                      prompt_negative TEXT               -- Added for editable negative prompt
+                                      prompt_negative TEXT,              -- Added for editable negative prompt
+                                      main_image_path TEXT
 );
 
 -- Table: images (up to 25 per model)
