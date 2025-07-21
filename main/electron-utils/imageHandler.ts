@@ -1,69 +1,81 @@
+// File: main/electron-utils/imageHandler.ts
+
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Ensure directory exists
 function ensureDir(dir: string) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-/**
- * Save image from URL to /images/[model_hash] and keep max 25 images.
- * Now accepts optional index and metadata for robust model gallery support.
- */
 export async function saveModelImage(
     modelHash: string,
-    imageUrl: string,
+    source: string,
     index?: number,
     metadata?: any
 ): Promise<string> {
     const imagesDir = path.join(__dirname, '../../images', modelHash);
     ensureDir(imagesDir);
 
-    // Fetch image data
-    const res = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-
-    // Read current images (for limiting to 25)
-    let imgFiles = fs.readdirSync(imagesDir).filter(f =>
-        /\.(png|jpg|jpeg)$/i.test(f)
-    );
-
-    // Limit to 25 images (delete oldest if needed)
+    // Prune to 24 if >=25
+    let imgFiles = fs
+        .readdirSync(imagesDir)
+        .filter(f => /\.(png|jpe?g)$/i.test(f));
     if (imgFiles.length >= 25) {
-        const oldest = imgFiles
-            .map(f => ({
-                file: f,
-                time: fs.statSync(path.join(imagesDir, f)).ctimeMs,
-            }))
+        const toDelete = imgFiles
+            .map(f => ({ file: f, time: fs.statSync(path.join(imagesDir, f)).ctimeMs }))
             .sort((a, b) => a.time - b.time)
             .slice(0, imgFiles.length - 24);
-        oldest.forEach(({ file }) => fs.unlinkSync(path.join(imagesDir, file)));
+        for (const { file } of toDelete) {
+            fs.unlinkSync(path.join(imagesDir, file));
+        }
+        imgFiles = fs.readdirSync(imagesDir).filter(f => /\.(png|jpe?g)$/i.test(f));
     }
 
-    // Generate file name: use index for predictability, fallback to timestamp/random for uniqueness
     const safeIndex = typeof index === 'number' && !isNaN(index) ? index : Date.now();
-    const imgName = `img_${safeIndex}.png`;
+    let ext = '.png';
+    if (fs.existsSync(source)) {
+        ext = path.extname(source) || ext;
+    } else {
+        try { ext = path.extname(new URL(source).pathname) || ext; }
+        catch { ext = '.png'; }
+    }
+    const baseName = `img_${safeIndex}`;
+    const imgName = `${baseName}${ext}`;
     const imgPath = path.join(imagesDir, imgName);
-    fs.writeFileSync(imgPath, Buffer.from(res.data));
 
-    // If metadata provided, save as JSON with same base name
-    if (metadata) {
-        const metaName = `img_${safeIndex}.json`;
-        const metaPath = path.join(imagesDir, metaName);
-        fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), 'utf-8');
+    if (fs.existsSync(source)) {
+        await fs.promises.copyFile(source, imgPath);
+    } else {
+        const res = await axios.get(source, { responseType: 'arraybuffer' });
+        await fs.promises.writeFile(imgPath, Buffer.from(res.data));
+    }
+
+    if (metadata !== undefined) {
+        const metaPath = path.join(imagesDir, `${baseName}.json`);
+        await fs.promises.writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf-8');
     }
 
     return imgPath;
 }
 
-// Get all images for a model (returns full paths)
+export async function deleteModelImage(modelHash: string, fileName: string): Promise<void> {
+    const imagesDir = path.join(__dirname, '../../images', modelHash);
+    const target = path.join(imagesDir, fileName);
+    if (fs.existsSync(target)) {
+        await fs.promises.unlink(target);
+    }
+}
+
 export function getModelImages(modelHash: string): string[] {
     const imagesDir = path.join(__dirname, '../../images', modelHash);
     if (!fs.existsSync(imagesDir)) return [];
-    return fs.readdirSync(imagesDir)
-        .filter(f => /\.(png|jpg|jpeg)$/i.test(f))
+    return fs
+        .readdirSync(imagesDir)
+        .filter(f => /\.(png|jpe?g)$/i.test(f))
         .map(f => path.join(imagesDir, f));
 }

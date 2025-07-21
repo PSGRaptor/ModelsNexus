@@ -1,470 +1,570 @@
-// File: root/renderer/src/components/ModelDetailsModal.tsx
+// File: renderer/src/components/ModelDetailsModal.tsx
 
-import React, { useEffect, useState, ChangeEvent } from 'react';
-import { FaExternalLinkAlt, FaChevronLeft, FaChevronRight, FaEdit, FaSave, FaTimes, FaPlus, FaTrash } from 'react-icons/fa';
+import React, { useEffect, useState, ChangeEvent, DragEvent } from 'react';
+import {
+    FaExternalLinkAlt,
+    FaChevronLeft,
+    FaChevronRight,
+    FaEdit,
+    FaSave,
+    FaTimes,
+    FaPlus,
+    FaTrash
+} from 'react-icons/fa';
 
 const MODEL_TYPES = [
-    'SD1', 'SDXL', 'PONY', 'FLUX', 'HiDream', 'WAN', 'Safetensors', 'Lora', 'PT', 'GGUF'
+    'SD1', 'SDXL', 'PONY', 'FLUX', 'HiDream', 'WAN',
+    'Safetensors', 'Lora', 'PT', 'GGUF'
 ];
 
-const OnlineModal: React.FC<{ url: string; onClose: () => void }> = ({ url, onClose }) => (
-    <div className="fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
-        <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-[96vw] h-[82vh] overflow-hidden">
-            <button
-                className="absolute top-3 right-5 text-3xl text-gray-400 dark:text-gray-200 font-bold z-20 hover:text-primary transition"
-                onClick={onClose}
-                title="Close"
-            >&times;</button>
-            <iframe
-                src={url}
-                className="w-full h-full border-0"
-                style={{ borderRadius: "1rem" }}
-                sandbox="allow-scripts allow-same-origin allow-popups"
-                title="External Model Page"
-            />
-        </div>
-    </div>
-);
-
-const ImageModal: React.FC<{ images: string[], index: number, onClose: () => void }> = ({ images, index, onClose }) => {
-    const [current, setCurrent] = useState(index);
-    if (!images.length) return null;
-
-    const goLeft = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setCurrent(c => c > 0 ? c - 1 : images.length - 1);
-    };
-    const goRight = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setCurrent(c => c < images.length - 1 ? c + 1 : 0);
-    };
-
-    return (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center" onClick={onClose}>
-            <button
-                className="absolute top-4 right-8 text-3xl text-gray-100 font-bold z-20 hover:text-primary transition"
-                onClick={onClose}
-                title="Close"
-            >&times;</button>
-            <button className="absolute left-8 text-4xl text-gray-200 hover:text-primary z-20" onClick={goLeft} title="Previous image">
-                <FaChevronLeft />
-            </button>
-            <img
-                src={images[current].startsWith('file://') ? images[current] : `file://${images[current]}`}
-                alt="Full preview"
-                className="rounded-lg shadow-xl max-h-[80vh] max-w-[92vw] border-4 border-primary bg-white dark:bg-zinc-900"
-                draggable={false}
-            />
-            <button className="absolute right-8 text-4xl text-gray-200 hover:text-primary z-20" onClick={goRight} title="Next image">
-                <FaChevronRight />
-            </button>
-        </div>
-    );
-};
-
-function extractCivitaiModelId(model: any): string | undefined {
-    if (model?.civitai_model_id) return model.civitai_model_id.toString();
-    if (model?.civitai_url) {
-        const match = model.civitai_url.match(/\/models\/(\d+)/);
-        if (match) return match[1];
-    }
-    if (model?.meta && model.meta.civitai_model_id) return model.meta.civitai_model_id.toString();
-    return undefined;
+// Helpers
+function getFileName(path: string): string {
+    const parts = path.split(/[/\\]/);
+    return parts[parts.length - 1];
+}
+function defaultRename(name: string): string {
+    const i = name.lastIndexOf('.');
+    const base = i >= 0 ? name.slice(0, i) : name;
+    const ext = i >= 0 ? name.slice(i) : '';
+    return `${base}_${Date.now()}${ext}`;
 }
 
-const ModelDetailsModal: React.FC<{
+interface AddedFile {
+    file: File | { path: string };
+    saveName: string;
+    url: string;
+}
+interface ModelDetailsModalProps {
     modelHash: string;
     onClose: () => void;
-}> = ({ modelHash, onClose }) => {
-    const [images, setImages] = useState<string[]>([]);
-    const [apiEnriching, setApiEnriching] = useState(false);
-    const [userNote, setUserNote] = useState('');
-    const [tags, setTags] = useState<string[]>([]);
-    const [newTag, setNewTag] = useState('');
+}
+
+const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClose }) => {
+    // Display state
     const [model, setModel] = useState<any>(null);
+    const [images, setImages] = useState<string[]>([]);
+    const [userNote, setUserNote] = useState<string>('');
+    const [tags, setTags] = useState<string[]>([]);
+    const [apiEnriching, setApiEnriching] = useState<boolean>(false);
 
-    const [modalImageIdx, setModalImageIdx] = useState<number | null>(null);
-    const [showOnlineModal, setShowOnlineModal] = useState<string | null>(null);
-    const [notesExpanded, setNotesExpanded] = useState(false);
-
-    // Editing states
+    // Edit state
     const [isEditing, setIsEditing] = useState(false);
     const [editFields, setEditFields] = useState<any>({});
     const [editTags, setEditTags] = useState<string[]>([]);
-    const [editNote, setEditNote] = useState('');
+    const [newTag, setNewTag] = useState<string>('');
+    const [editNote, setEditNote] = useState<string>('');
     const [editImages, setEditImages] = useState<string[]>([]);
-    const [addedFiles, setAddedFiles] = useState<File[]>([]);
+    const [addedFiles, setAddedFiles] = useState<AddedFile[]>([]);
 
+    // Drag/drop & conflicts
+    const [isDragActive, setIsDragActive] = useState(false);
+    const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+    const [conflictFile, setConflictFile] = useState<AddedFile | null>(null);
+    const [renameValue, setRenameValue] = useState<string>('');
+
+    // Nested modals
+    const [modalImageIdx, setModalImageIdx] = useState<number | null>(null);
+    const [showOnlineUrl, setShowOnlineUrl] = useState<string | null>(null);
+    const [notesExpanded, setNotesExpanded] = useState(false);
+
+    // Add local paths from native dialog
+    const addLocalFiles = (paths: string[]) => {
+        const entries = paths.map(p => ({
+            file: { path: p },
+            saveName: getFileName(p),
+            url: p.startsWith('file://') ? p : `file://${p}`
+        }));
+        setAddedFiles(af => [...af, ...entries]);
+        setEditImages(imgs => [...imgs, ...entries.map(e => e.url)]);
+    };
+
+    // Add dropped File objects
+    const safeAddFile = (file: File, saveName: string) => {
+        const url = URL.createObjectURL(file);
+        setAddedFiles(af => [...af, { file, saveName, url }]);
+        setEditImages(imgs => [...imgs, url]);
+    };
+
+    // Load model details
     useEffect(() => {
         (async () => {
             const imgs = (await window.electronAPI.getModelImages(modelHash)).filter(Boolean);
             setImages(imgs);
             setUserNote(await window.electronAPI.getUserNote(modelHash));
-            const allTags = (await window.electronAPI.getTags(modelHash)).map((t: any) => t.tag);
-            setTags(allTags);
-            if (window.electronAPI?.getModelByHash) {
+            setTags((await window.electronAPI.getTags(modelHash)).map((t: any) => t.tag));
+            if (window.electronAPI.getModelByHash) {
                 setModel(await window.electronAPI.getModelByHash(modelHash));
             }
         })();
         setIsEditing(false);
     }, [modelHash]);
 
-    const handleEnrichFromAPI = async () => {
+    // Enrich
+    const handleEnrich = async () => {
         setApiEnriching(true);
         await window.electronAPI.enrichModelFromAPI(modelHash);
-        setImages((await window.electronAPI.getModelImages(modelHash)).filter(Boolean));
+        const imgs = (await window.electronAPI.getModelImages(modelHash)).filter(Boolean);
+        setImages(imgs);
         setApiEnriching(false);
-        if (window.electronAPI?.getModelByHash) {
+        if (window.electronAPI.getModelByHash) {
             setModel(await window.electronAPI.getModelByHash(modelHash));
         }
     };
 
-    // Start editing
+    // Start & cancel editing
     const handleStartEdit = () => {
         setEditFields({
-            model_name: model?.model_name || model?.file_name || "",
-            model_type: model?.model_type || "",
-            base_model: model?.base_model || "",
-            version: model?.version || "",
-            prompt_positive: model?.prompt_positive || "",
-            prompt_negative: model?.prompt_negative || "",
+            model_name: model?.model_name || model?.file_name || '',
+            model_type: model?.model_type || '',
+            base_model: model?.base_model || '',
+            version: model?.version || '',
+            prompt_positive: model?.prompt_positive || '',
+            prompt_negative: model?.prompt_negative || ''
         });
         setEditTags([...tags]);
+        setNewTag('');
         setEditNote(userNote);
         setEditImages([...images]);
         setAddedFiles([]);
         setIsEditing(true);
     };
-
     const handleCancelEdit = () => {
         setIsEditing(false);
-        setEditFields({});
         setAddedFiles([]);
+        setEditFields({});
+        setConflictFile(null);
     };
 
-    const handleSaveEdit = async () => {
-        // 1. Add new images to db if any (skip if not used in your DB)
-        for (const file of addedFiles) {
-            await window.electronAPI.saveModelImage(modelHash, file.name);
+    // Drag & drop
+    const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragActive(false);
+        setPendingFiles(Array.from(e.dataTransfer.files));
+    };
+
+    // Conflict resolution
+    useEffect(() => {
+        if (!pendingFiles.length || conflictFile) return;
+        const newAdded: AddedFile[] = [];
+        let leftover: File[] = [];
+
+        for (const f of pendingFiles) {
+            const existing = new Set([
+                ...images.map(getFileName),
+                ...addedFiles.map(a => a.saveName),
+                ...newAdded.map(a => a.saveName)
+            ]);
+            if (existing.has(f.name)) {
+                leftover = pendingFiles.slice(pendingFiles.indexOf(f) + 1);
+                const def = defaultRename(f.name);
+                setRenameValue(def);
+                setConflictFile({ file: f, saveName: def, url: URL.createObjectURL(f) });
+                break;
+            } else {
+                newAdded.push({ file: f, saveName: f.name, url: URL.createObjectURL(f) });
+            }
         }
 
-        // 2. Compute tags to add/remove (compare tags and editTags)
-        const oldSet = new Set(tags);
-        const newSet = new Set(editTags);
-        const tagsToAdd = editTags.filter(tag => !oldSet.has(tag));
-        const tagsToRemove = tags.filter(tag => !newSet.has(tag));
+        if (newAdded.length) {
+            setAddedFiles(af => [...af, ...newAdded]);
+            setEditImages(imgs => [...imgs, ...newAdded.map(a => a.url)]);
+        }
+        setPendingFiles(leftover);
+    }, [pendingFiles, conflictFile, images, addedFiles]);
 
-        // 3. Prepare updated model object
-        const updatedModel = {
+    // Save all edits
+    const handleSave = async () => {
+        // Save images (local paths or dropped files)
+        for (const a of addedFiles) {
+            const p = (a.file as any).path;
+            const source = p ?? a.url;
+            await window.electronAPI.saveModelImage(modelHash, source);
+        }
+
+        // Tags diff & update
+        const oldSet = new Set(tags), newSet = new Set(editTags);
+        const toAdd = editTags.filter(t => !oldSet.has(t));
+        const toRemove = tags.filter(t => !newSet.has(t));
+        const updated = {
             ...model,
             ...editFields,
             tags: editTags,
             notes: editNote,
             model_hash: modelHash,
-            model_name: editFields.model_name || model?.model_name || model?.file_name || ""
+            model_name: editFields.model_name || model?.model_name || model?.file_name || ''
         };
-
-        // 4. Call updateModel with correct structure
         await window.electronAPI.updateModel({
-            model: updatedModel,
-            tagsToAdd,
-            tagsToRemove,
+            model: updated,
+            tagsToAdd: toAdd,
+            tagsToRemove: toRemove,
             userNote: editNote
         });
 
-        setIsEditing(false);
-
         // Reload state
-        setImages((await window.electronAPI.getModelImages(modelHash)).filter(Boolean));
+        setIsEditing(false);
+        const imgs = (await window.electronAPI.getModelImages(modelHash)).filter(Boolean);
+        setImages(imgs);
         setUserNote(await window.electronAPI.getUserNote(modelHash));
         setTags((await window.electronAPI.getTags(modelHash)).map((t: any) => t.tag));
-        if (window.electronAPI?.getModelByHash) {
+        if (window.electronAPI.getModelByHash) {
             setModel(await window.electronAPI.getModelByHash(modelHash));
         }
     };
 
+    // Delete an image
+    const handleDelete = async (url: string) => {
+        const idx = addedFiles.findIndex(a => a.url === url);
+        if (idx >= 0) {
+            setAddedFiles(af => af.filter((_, i) => i !== idx));
+        } else {
+            const p = url.startsWith('file://') ? url.slice(7) : url;
+            const name = getFileName(p);
+            await (window.electronAPI as any).deleteModelImage(modelHash, name);
+            setImages(imgs => imgs.filter(i => i !== url));
+        }
+        setEditImages(imgs => imgs.filter(i => i !== url));
+    };
 
-    const renderHtml = (html: string) => <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: html }} />;
-
-    const showModelName = model?.model_name || model?.file_name || modelHash;
-    const civitaiModelId = extractCivitaiModelId(model);
-    const type = model?.model_type || "–";
-    const base = model?.base_model || "–";
-    const version = model?.version || "–";
-    const civitaiUrl = civitaiModelId ? `https://civitai.com/models/${civitaiModelId}` : model?.civitai_url;
-
+    // Tags
     const handleAddTag = () => {
-        if (newTag && !editTags.includes(newTag)) {
-            setEditTags([...editTags, newTag]);
-            setNewTag('');
-        }
+        if (newTag && !editTags.includes(newTag)) setEditTags(ts => [...ts, newTag]);
+        setNewTag('');
     };
-    const handleRemoveTag = (tag: string) => setEditTags(editTags.filter(t => t !== tag));
+    const handleRemoveTag = (t: string) => setEditTags(ts => ts.filter(x => x !== t));
 
-    const handleImageDelete = (img: string) => setEditImages(editImages.filter(i => i !== img));
-    const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setAddedFiles([...addedFiles, ...Array.from(e.target.files)]);
-            setEditImages([...editImages, ...Array.from(e.target.files).map(f => URL.createObjectURL(f))]);
-        }
+    // Conflict actions
+    const conflictOverwrite = () => {
+        if (!conflictFile) return;
+        safeAddFile(conflictFile.file as File, conflictFile.saveName);
+        setConflictFile(null);
     };
+    const conflictRename = () => {
+        if (!conflictFile) return;
+        safeAddFile(conflictFile.file as File, renameValue);
+        setConflictFile(null);
+    };
+    const conflictCancel = () => setConflictFile(null);
 
-    const handleFieldChange = (field: string, value: string) =>
-        setEditFields({ ...editFields, [field]: value });
+    // Helpers
+    const showName = model?.model_name || model?.file_name || modelHash;
+    const civI = model?.civitai_model_id || model?.meta?.civitai_model_id;
+    const civUrl = civI ? `https://civitai.com/models/${civI}` : model?.civitai_url;
+    const renderHtml = (html: string) => (
+        <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: html }} />
+    );
 
     return (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
             <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-5xl min-w-[800px] p-8 max-h-[94vh] overflow-y-auto relative">
-                {/* Close button */}
+                {/* Close */}
                 <button
-                    className="absolute top-4 right-6 text-2xl text-gray-400 dark:text-gray-200 hover:text-primary"
+                    className="absolute top-4 right-6 text-2xl text-zinc-400 dark:text-zinc-200 hover:text-blue-600"
                     onClick={onClose}
                 >&times;</button>
-                {/* Header & edit model_name */}
-                <div className="flex flex-wrap justify-between items-end mb-2">
+
+                {/* Header & Controls */}
+                <div className="flex justify-between items-end mb-4 pr-12">
                     <div>
                         {isEditing ? (
                             <input
-                                className="text-2xl font-bold bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 border border-zinc-300 dark:border-zinc-700 rounded w-full mb-1 px-2 py-1 transition-colors"
+                                className="text-2xl font-bold bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 border border-zinc-300 dark:border-zinc-700 rounded px-2 py-1"
                                 value={editFields.model_name}
-                                onChange={e => handleFieldChange('model_name', e.target.value)}
-                                placeholder="Enter Model Name"
+                                onChange={e => setEditFields((f: any) => ({ ...f, model_name: e.target.value }))}
                             />
                         ) : (
-                            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{showModelName}</h2>
+                            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{showName}</h2>
                         )}
-                        {civitaiModelId && (
-                            <span className="text-xs text-primary font-bold bg-primary/10 dark:bg-blue-900 dark:text-blue-200 rounded px-2 py-1 ml-1">Civitai ID: {civitaiModelId}</span>
+                        {civI && (
+                            <span className="text-xs text-blue-700 dark:text-blue-200 bg-blue-100 dark:bg-blue-900 rounded px-2 py-1 ml-2">
+                Civitai ID: {civI}
+              </span>
                         )}
                     </div>
-                    <div className="flex gap-2 items-center mb-1">
-                        {!isEditing && (
-                            <button className="flex items-center gap-1 px-4 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 font-semibold shadow"
-                                    onClick={handleStartEdit}><FaEdit /> Edit</button>
-                        )}
-                        {isEditing && (
+                    <div className="flex gap-2">
+                        {!isEditing ? (
+                            <button onClick={handleStartEdit} className="px-4 py-1 bg-blue-600 text-white rounded flex items-center gap-1">
+                                <FaEdit /> Edit
+                            </button>
+                        ) : (
                             <>
-                                <button className="flex items-center gap-1 px-4 py-1 rounded bg-green-600 text-white hover:bg-green-700 font-semibold shadow"
-                                        onClick={handleSaveEdit}><FaSave /> Save</button>
-                                <button className="flex items-center gap-1 px-4 py-1 rounded bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 hover:bg-zinc-400 dark:hover:bg-zinc-600 font-semibold shadow"
-                                        onClick={handleCancelEdit}><FaTimes /> Cancel</button>
+                                <button onClick={handleSave} className="px-4 py-1 bg-green-600 text-white rounded flex items-center gap-1">
+                                    <FaSave /> Save
+                                </button>
+                                <button onClick={handleCancelEdit} className="px-4 py-1 bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 rounded flex items-center gap-1">
+                                    <FaTimes /> Cancel
+                                </button>
                             </>
                         )}
                     </div>
                 </div>
+
+                {/* Enrich */}
                 <button
-                    onClick={handleEnrichFromAPI}
-                    className="px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-700 mt-1 mb-4"
+                    onClick={handleEnrich}
+                    className="mb-4 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                     disabled={apiEnriching}
                 >
                     {apiEnriching ? 'Fetching…' : 'Enrich from API'}
                 </button>
-                <div className="flex gap-8 mb-6 flex-wrap">
+
+                <div className="flex gap-8 flex-wrap mb-6">
+                    {/* Images & Tags Column */}
                     <div className="w-1/3 min-w-[180px]">
-                        {/* Images */}
-                        <div className="mb-3">
-                            <div className="grid grid-cols-3 gap-2">
-                                {(isEditing ? editImages : images).slice(0, 6).map((img, idx) =>
-                                        !!img && (
-                                            <div key={img} className="relative group">
-                                                <img
-                                                    src={img.startsWith('file://') ? img : `file://${img}`}
-                                                    alt="Model preview"
-                                                    className="rounded shadow cursor-pointer bg-zinc-100 dark:bg-zinc-800 transition-colors"
-                                                    draggable={false}
-                                                    onClick={() => setModalImageIdx(idx)}
-                                                />
-                                                {isEditing && (
-                                                    <button
-                                                        className="absolute top-0 right-0 bg-red-600 text-white rounded-full px-1 py-0 text-xs opacity-80 hover:opacity-100"
-                                                        onClick={() => handleImageDelete(img)}
-                                                        type="button"
-                                                    ><FaTrash /></button>
-                                                )}
-                                            </div>
-                                        )
-                                )}
-                            </div>
-                            {isEditing && (
-                                <input
-                                    type="file"
-                                    multiple
-                                    accept="image/*"
-                                    onChange={handleFileChange}
-                                    className="block w-full mt-2 text-sm bg-white dark:bg-zinc-900 text-gray-900 dark:text-zinc-100"
-                                />
+                        <div
+                            className={`grid grid-cols-3 gap-2 ${
+                                isEditing
+                                    ? isDragActive
+                                        ? 'border-2 border-blue-500 p-2'
+                                        : 'border-2 border-dashed border-gray-400 p-2'
+                                    : ''
+                            }`}
+                            onDragOver={e => { if (isEditing) { e.preventDefault(); setIsDragActive(true); } }}
+                            onDragLeave={() => isEditing && setIsDragActive(false)}
+                            onDrop={e => isEditing && handleDrop(e)}
+                        >
+                            {(isEditing ? editImages : images).slice(0, 6).map((img, idx) =>
+                                    img && (
+                                        <div key={img} className="relative">
+                                            <img
+                                                src={img.startsWith('file://') ? img : `file://${img}`}
+                                                alt="preview"
+                                                className="rounded shadow cursor-pointer bg-zinc-100 dark:bg-zinc-800"
+                                                onClick={() => setModalImageIdx(idx)}
+                                                draggable={false}
+                                            />
+                                            {isEditing && (
+                                                <button
+                                                    className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1"
+                                                    onClick={() => handleDelete(img)}
+                                                >
+                                                    <FaTrash />
+                                                </button>
+                                            )}
+                                        </div>
+                                    )
                             )}
-                            <div className="text-xs mt-2 text-gray-400 dark:text-gray-200">
-                                {(isEditing ? editImages : images).length} images stored
-                            </div>
                         </div>
+
+                        {isEditing && (
+                            <button
+                                type="button"
+                                className="block w-full mt-2 px-2 py-1 bg-white dark:bg-zinc-900 text-gray-900 dark:text-gray-100 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                                onClick={async () => {
+                                    const paths: string[] = await window.electronAPI.openFileDialog({
+                                        filters: [{ name: 'Images', extensions: ['png','jpg','jpeg','webp'] }],
+                                        properties: ['openFile','multiSelections']
+                                    });
+                                    if (paths.length) addLocalFiles(paths);
+                                }}
+                            >
+                                <FaPlus className="inline mr-1" /> Choose Images…
+                            </button>
+                        )}
+
+                        <div className="text-xs mt-2 text-gray-400 dark:text-gray-200">
+                            {(isEditing ? editImages : images).length} images stored
+                        </div>
+
                         {/* Tags */}
-                        <div className="mb-3">
+                        <div className="mt-4">
                             <span className="font-semibold text-gray-800 dark:text-gray-100">Tags:</span>
-                            <div className="flex flex-wrap gap-2 mt-1">
-                                {(isEditing ? editTags : tags).map(tag =>
-                                    <span key={tag} className="bg-primary/10 dark:bg-blue-900 text-primary dark:text-blue-200 px-2 py-1 rounded flex items-center gap-1 transition-colors">
-                                        {tag}
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {(isEditing ? editTags : tags).map(tag => (
+                                    <span key={tag} className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 px-2 py-1 rounded flex items-center gap-1">
+                    {tag}
                                         {isEditing && (
-                                            <button className="text-red-400 dark:text-red-300 ml-1" onClick={() => handleRemoveTag(tag)} title="Remove tag">&times;</button>
+                                            <button onClick={() => handleRemoveTag(tag)} className="text-red-400 dark:text-red-300">&times;</button>
                                         )}
-                                    </span>
-                                )}
+                  </span>
+                                ))}
                                 {isEditing && (
                                     <>
                                         <input
-                                            type="text"
                                             value={newTag}
                                             onChange={e => setNewTag(e.target.value)}
                                             placeholder="Add tag"
-                                            className="border rounded px-2 py-1 w-20 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
-                                            onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                                            className="border rounded px-2 py-1 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                                            onKeyDown={e => e.key==='Enter' && handleAddTag()}
                                         />
-                                        <button
-                                            className="bg-primary text-white rounded px-2 py-1 ml-1"
-                                            onClick={handleAddTag}
-                                            type="button"
-                                        ><FaPlus size={12} /></button>
+                                        <button onClick={handleAddTag} className="bg-blue-600 text-white px-2 py-1 rounded">
+                                            <FaPlus size={12}/>
+                                        </button>
                                     </>
                                 )}
                             </div>
                         </div>
                     </div>
-                    {/* Prompts, File info, Links */}
+
+                    {/* Prompts, File info & Links */}
                     <div className="flex-1 min-w-[240px]">
                         <div className="mb-2 text-sm text-gray-700 dark:text-gray-100">
                             <div><strong>Hash:</strong> <span className="font-mono">{modelHash}</span></div>
-                            <div className="text-xs text-muted mt-1 truncate"><strong>Path:</strong> {model?.file_path}</div>
+                            <div className="text-xs text-zinc-500 dark:text-zinc-300 mt-1 truncate">
+                                <strong>Path:</strong> {model?.file_path}
+                            </div>
                         </div>
-                        {/* Online link buttons */}
-                        <div className="flex gap-4 mb-4 mt-2">
-                            {civitaiUrl && (
-                                <button
-                                    onClick={() => setShowOnlineModal(civitaiUrl)}
-                                    className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition text-xs"
-                                >View on Civitai <FaExternalLinkAlt /></button>
+                        <div className="flex gap-4 mb-4">
+                            {civUrl && (
+                                <button onClick={() => setShowOnlineUrl(civUrl)} className="px-3 py-1 bg-blue-600 text-white rounded text-xs flex items-center gap-1">
+                                    <FaExternalLinkAlt/>View on Civitai
+                                </button>
                             )}
                             {model?.huggingface_url && (
-                                <button
-                                    onClick={() => setShowOnlineModal(model.huggingface_url)}
-                                    className="flex items-center gap-1 bg-violet-600 text-white px-3 py-1 rounded hover:bg-violet-700 transition text-xs"
-                                >View Hugging Face <FaExternalLinkAlt /></button>
+                                <button onClick={() => setShowOnlineUrl(model.huggingface_url!)} className="px-3 py-1 bg-violet-600 text-white rounded text-xs flex items-center gap-1">
+                                    <FaExternalLinkAlt/>View on HF
+                                </button>
                             )}
                         </div>
-                        <div className="my-3">
+
+                        <div className="space-y-4">
                             <div>
-                                <span className="font-semibold text-muted-foreground dark:text-zinc-200">Positive Prompt:</span>{' '}
+                                <span className="font-semibold text-gray-800 dark:text-gray-100">Positive Prompt:</span>
                                 {isEditing ? (
                                     <textarea
-                                        className="w-full p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 transition-colors"
+                                        rows={2}
+                                        className="w-full p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
                                         value={editFields.prompt_positive}
-                                        onChange={e => handleFieldChange('prompt_positive', e.target.value)}
-                                        placeholder="Enter Positive Prompt"
+                                        onChange={e => setEditFields((f:any)=>( {...f, prompt_positive: e.target.value} ))}
                                     />
                                 ) : (
-                                    <span className="font-mono">{model?.prompt_positive || "–"}</span>
+                                    <pre className="whitespace-pre-wrap font-mono">{model?.prompt_positive||'–'}</pre>
                                 )}
                             </div>
                             <div>
-                                <span className="font-semibold text-muted-foreground dark:text-zinc-200">Negative Prompt:</span>{' '}
+                                <span className="font-semibold text-gray-800 dark:text-gray-100">Negative Prompt:</span>
                                 {isEditing ? (
                                     <textarea
-                                        className="w-full p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 transition-colors"
+                                        rows={2}
+                                        className="w-full p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
                                         value={editFields.prompt_negative}
-                                        onChange={e => handleFieldChange('prompt_negative', e.target.value)}
-                                        placeholder="Enter Negative Prompt"
+                                        onChange={e => setEditFields((f:any)=>( {...f, prompt_negative: e.target.value} ))}
                                     />
                                 ) : (
-                                    <span className="font-mono">{model?.prompt_negative || "–"}</span>
+                                    <pre className="whitespace-pre-wrap font-mono">{model?.prompt_negative||'–'}</pre>
                                 )}
                             </div>
-                            <div className="mt-2 flex flex-col gap-2">
-                                <label className="font-semibold text-muted-foreground dark:text-zinc-200">Model Type:</label>
-                                {isEditing ? (
-                                    <select
-                                        className="w-full p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 transition-colors"
-                                        value={editFields.model_type}
-                                        onChange={e => handleFieldChange('model_type', e.target.value)}
-                                    >
-                                        <option value="">–</option>
-                                        {MODEL_TYPES.map(type => (
-                                            <option key={type} value={type}>{type}</option>
-                                        ))}
-                                    </select>
-                                ) : (
-                                    <span className="bg-primary/10 dark:bg-blue-900 text-primary dark:text-blue-200 px-2 py-1 rounded">{type}</span>
-                                )}
-                            </div>
-                            <div className="mt-2 flex flex-col gap-2">
-                                <label className="font-semibold text-muted-foreground dark:text-zinc-200">Base Model:</label>
-                                {isEditing ? (
-                                    <input
-                                        className="w-full p-2 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 transition-colors"
-                                        value={editFields.base_model}
-                                        onChange={e => handleFieldChange('base_model', e.target.value)}
-                                        placeholder="Enter Base Model"
-                                    />
-                                ) : (
-                                    <span className="bg-muted px-2 py-1 rounded text-muted-foreground dark:bg-zinc-800 dark:text-zinc-200">{base}</span>
-                                )}
-                            </div>
-                            <div className="mt-2 flex flex-col gap-2">
-                                <label className="font-semibold text-muted-foreground dark:text-zinc-200">Version:</label>
-                                {isEditing ? (
-                                    <input
-                                        className="w-full p-2 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 transition-colors"
-                                        value={editFields.version}
-                                        onChange={e => handleFieldChange('version', e.target.value)}
-                                        placeholder="Enter Version"
-                                    />
-                                ) : (
-                                    <span className="bg-muted px-2 py-1 rounded text-muted-foreground dark:bg-zinc-800 dark:text-zinc-200">{version}</span>
-                                )}
+                            <div className="flex gap-4">
+                                <div>
+                                    <span className="font-semibold text-gray-800 dark:text-gray-100">Type:</span>{' '}
+                                    {isEditing ? (
+                                        <select
+                                            className="border px-2 py-1 rounded bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                                            value={editFields.model_type||''}
+                                            onChange={e=>setEditFields((f:any)=>( {...f, model_type: e.target.value} ))}
+                                        >
+                                            <option value="">–</option>
+                                            {MODEL_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    ) : (
+                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.model_type||'–'}</span>
+                                    )}
+                                </div>
+                                <div>
+                                    <span className="font-semibold text-gray-800 dark:text-gray-100">Base:</span>{' '}
+                                    {isEditing ? (
+                                        <input
+                                            className="border px-2 py-1 rounded bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                                            value={editFields.base_model||''}
+                                            onChange={e=>setEditFields((f:any)=>( {...f, base_model: e.target.value} ))}
+                                        />
+                                    ) : (
+                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.base_model||'–'}</span>
+                                    )}
+                                </div>
+                                <div>
+                                    <span className="font-semibold text-gray-800 dark:text-gray-100">Version:</span>{' '}
+                                    {isEditing ? (
+                                        <input
+                                            className="border px-2 py-1 rounded bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                                            value={editFields.version||''}
+                                            onChange={e=>setEditFields((f:any)=>( {...f, version: e.target.value} ))}
+                                        />
+                                    ) : (
+                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.version||'–'}</span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                {/* Notes: full width below */}
-                <div className={`mb-2 transition-all ${notesExpanded ? 'max-h-[400px]' : 'max-h-[120px]'}`}>
-                    <div className="flex items-center gap-2 mb-1">
+
+                {/* Notes */}
+                <div className={`mb-4 transition-all ${notesExpanded ? 'max-h-[400px]' : 'max-h-[120px]'}`}>
+                    <div className="flex justify-between items-center mb-2">
                         <span className="font-semibold text-gray-800 dark:text-gray-100">Notes:</span>
                         <button
-                            className="text-xs text-blue-600 underline"
-                            onClick={() => setNotesExpanded(e => !e)}
-                        >{notesExpanded ? "Collapse" : "Expand"}</button>
+                            className="text-xs text-blue-600 dark:text-blue-300 underline"
+                            onClick={()=>setNotesExpanded(x=>!x)}
+                        >{notesExpanded?'Collapse':'Expand'}</button>
                     </div>
-                    <div className="rounded border border-zinc-200 dark:border-zinc-700 bg-muted dark:bg-zinc-800 px-2 py-1 max-w-full overflow-y-auto transition-colors">
+                    <div className="border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 px-2 py-2 rounded overflow-auto">
                         {isEditing ? (
                             <textarea
-                                className="w-full p-2 border-none bg-zinc-800 text-zinc-900 dark:text-zinc-100 "
-                                rows={notesExpanded ? 8 : 3}
+                                className="w-full p-2 bg-zinc-100 dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                                rows={notesExpanded?6:2}
                                 value={editNote}
-                                onChange={e => setEditNote(e.target.value)}
-                                placeholder="Enter Notes"
+                                onChange={e=>setEditNote(e.target.value)}
                             />
-                        ) : userNote && userNote.trim().startsWith('<') ? renderHtml(userNote) : (
-                            <textarea
-                                className="w-full p-2 border-none bg-transparent text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 "
-                                rows={notesExpanded ? 8 : 3}
-                                value={userNote}
-                                readOnly
-                                disabled
-                                tabIndex={-1}
-                            />
+                        ) : userNote.trim().startsWith('<') ? (
+                            renderHtml(userNote)
+                        ) : (
+                            <pre className="whitespace-pre-wrap text-gray-900 dark:text-gray-100">{userNote||'<No notes>'}</pre>
                         )}
                     </div>
                 </div>
-                {/* Image modal */}
+
+                {/* Full-size image carousel modal */}
                 {modalImageIdx !== null && (
-                    <ImageModal
-                        images={isEditing ? editImages : images}
-                        index={modalImageIdx}
-                        onClose={() => setModalImageIdx(null)}
-                    />
+                    <div className="fixed inset-0 bg-black/75 flex items-center justify-center" onClick={()=>setModalImageIdx(null)}>
+                        <button className="absolute top-4 right-4 text-2xl text-white"><FaTimes/></button>
+                        <button className="absolute left-4 text-3xl text-white" onClick={e=>{e.stopPropagation();setModalImageIdx(i=>(i!>0?i!-1: (isEditing?editImages:images).length-1));}}>
+                            <FaChevronLeft/>
+                        </button>
+                        <img
+                            src={(isEditing?editImages:images)[modalImageIdx]!}
+                            alt="full"
+                            className="max-h-[90vh] max-w-[90vw] rounded shadow-lg"
+                        />
+                        <button className="absolute right-4 text-3xl text-white" onClick={e=>{e.stopPropagation();setModalImageIdx(i=>(i!< (isEditing?editImages:images).length-1?i!+1:0));}}>
+                            <FaChevronRight/>
+                        </button>
+                    </div>
                 )}
-                {/* Online (link) modal */}
-                {showOnlineModal && (
-                    <OnlineModal url={showOnlineModal} onClose={() => setShowOnlineModal(null)} />
+
+                {/* Conflict modal */}
+                {conflictFile && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+                        <div className="bg-white dark:bg-zinc-900 p-4 rounded shadow-lg max-w-sm">
+                            <p className="mb-2">“{conflictFile.saveName}” exists. Overwrite or rename?</p>
+                            <input
+                                value={renameValue}
+                                onChange={e=>setRenameValue(e.target.value)}
+                                className="w-full mb-2 border px-2 py-1 rounded"
+                            />
+                            <div className="flex justify-end gap-2">
+                                <button onClick={conflictCancel} className="px-2 py-1 rounded">Cancel</button>
+                                <button onClick={conflictOverwrite} className="px-2 py-1 bg-red-500 text-white rounded">Overwrite</button>
+                                <button onClick={conflictRename} className="px-2 py-1 bg-blue-500 text-white rounded">Rename</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Online link modal */}
+                {showOnlineUrl && (
+                    <div className="fixed inset-0 bg-black/75 flex items-center justify-center">
+                        <div className="bg-white dark:bg-zinc-900 w-full h-full max-w-4xl max-h-[90vh] rounded-lg overflow-hidden relative">
+                            <button
+                                className="absolute top-2 right-2 text-2xl text-zinc-400 dark:text-zinc-200 hover:text-blue-600"
+                                onClick={()=>setShowOnlineUrl(null)}
+                            ><FaTimes/></button>
+                            <iframe
+                                src={showOnlineUrl}
+                                className="w-full h-full border-0"
+                                sandbox="allow-scripts allow-same-origin allow-popups"
+                            />
+                        </div>
+                    </div>
                 )}
             </div>
         </div>

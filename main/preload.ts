@@ -42,4 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancelScan: async () => ipcRenderer.invoke('cancelScan'),
     onScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.on('scan-progress', callback),
     removeScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.removeListener('scan-progress', callback),
-});
+    openFileDialog: (options: Electron.OpenDialogOptions) => ipcRenderer.invoke('dialog:openFileDialog', options),
+
+    deleteModelImage: (hash: string, name: string) => ipcRenderer.invoke('deleteModelImage', hash, name),
+    });

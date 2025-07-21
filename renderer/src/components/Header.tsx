@@ -3,6 +3,7 @@
 import React from 'react';
 import * as FaIcons from 'react-icons/fa';
 import { useTheme } from '../context/ThemeContext';
+import AboutModal from './AboutModal';
 
 type HeaderProps = {
     logo: string;
@@ -72,6 +73,16 @@ const Header: React.FC<HeaderProps> = ({ logo, onOpenConfig }) => {
                 </span>
             </div>
             <div className="flex items-center gap-4">
+                {/* About button/modal */}
+                <AboutModal
+                    appName="Models Nexus"
+                    logoSrc={logo}
+                    shortDescription="Catalog and explore AI model files locally."
+                    longDescription="Models Nexus scans local and network folders for AI model files (safetensor, gguf, .pt, LoRAs, etc.), fetches metadata from Civitai/Hugging Face, and presents it in a searchable, sortable database."
+                    author="Badaxiom"
+                    lastUpdate="2025-07-21"
+                    githubUrl="https://github.com/PSGRaptor/ModelsNexus"
+                />
                 <button
                     aria-label="Toggle theme"
                     className="ml-2 px-2 py-1 rounded-full hover:bg-zinc-200 dark:hover:bg-zinc-800 transition relative group"

@@ -1,43 +1,57 @@
-// renderer/src/global.d.ts
+// File: renderer/src/global.d.ts
 
 import type { IImageMeta } from './types';
+import type { OpenDialogOptions } from 'electron';
 
 declare global {
     interface Window {
         electronAPI: {
-            getImageMetadata: (path: string) => Promise<IImageMeta>;
+            // Model metadata
+            getImageMetadata(path: string): Promise<IImageMeta>;
+            getAppVersion(): Promise<string>;
 
-            getAppVersion: () => Promise<string>;
+            // Model scanning
+            getAllModels(): Promise<any[]>;
+            getAllModelsWithCover(): Promise<any[]>;
+            scanAndImportModels(): Promise<any[]>;
+            getAllScanPaths(): Promise<any[]>;
+            addScanPath(path: string): Promise<any[]>;
+            removeScanPath(path: string): Promise<void>;
+            selectFolder(): Promise<string>;
 
-            getAllModels: () => Promise<any[]>;
-            getAllModelsWithCover: () => Promise<any[]>;
-            scanAndImportModels: () => Promise<any[]>;
-            getAllScanPaths: () => Promise<any[]>;
-            addScanPath: (path: string) => Promise<any[]>;
-            removeScanPath: (path: string) => Promise<void>;
-            selectFolder: () => Promise<string>;
+            // API keys
+            getApiKey(provider: string): Promise<string>;
+            setApiKey(provider: string, apiKey: string): Promise<void>;
 
-            getApiKey: (provider: string) => Promise<string>;
-            setApiKey: (provider: string, apiKey: string) => Promise<void>;
+            // Image handling
+            saveModelImage(modelHash: string, source: string): Promise<string>;
+            getModelImages(modelHash: string): Promise<string[]>;
+            deleteModelImage(modelHash: string, fileName: string): Promise<void>;
 
-            saveModelImage: (modelHash: string, imageUrl: string) => Promise<any>;
-            getModelImages: (modelHash: string) => Promise<any[]>;
-            getModelByHash: (modelHash: string) => Promise<any>;
-            enrichModelFromAPI: (modelHash: string) => Promise<void>;
-            reenrichAllModels: () => Promise<any>;
-            updateHashMap: () => Promise<any>;
+            // Model details
+            getModelByHash(modelHash: string): Promise<any>;
+            enrichModelFromAPI(modelHash: string): Promise<void>;
+            reenrichAllModels(): Promise<any>;
+            updateHashMap(): Promise<any>;
 
-            getUserNote: (modelHash: string) => Promise<string>;
-            setUserNote: (modelHash: string, note: string) => Promise<void>;
-            getTags: (modelHash: string) => Promise<any[]>;
-            addTag: (modelHash: string, tag: string) => Promise<void>;
-            removeTag: (modelHash: string, tag: string) => Promise<void>;
+            // Notes & tags
+            getUserNote(modelHash: string): Promise<string>;
+            setUserNote(modelHash: string, note: string): Promise<void>;
+            getTags(modelHash: string): Promise<{ tag: string }[]>;
+            addTag(modelHash: string, tag: string): Promise<void>;
+            removeTag(modelHash: string, tag: string): Promise<void>;
 
-            toggleFavoriteModel: (modelHash: string) => Promise<void>;
-            cancelScan: () => Promise<void>;
-            onScanProgress: (callback: (event: any, ...args: any[]) => void) => void;
-            removeScanProgress: (callback: (event: any, ...args: any[]) => void) => void;
-            updateModel: (modelData: any) => Promise<{ success: boolean; error?: string }>;
+            // Favorites & scanning
+            toggleFavoriteModel(modelHash: string): Promise<void>;
+            cancelScan(): Promise<void>;
+            onScanProgress(callback: (event: any, data: any) => void): void;
+            removeScanProgress(callback: (event: any, data: any) => void): void;
+
+            // Model update
+            updateModel(modelData: any): Promise<{ success: boolean; error?: string }>;
+
+            // Native file dialog
+            openFileDialog(options: OpenDialogOptions): Promise<string[]>;
         };
     }
 }

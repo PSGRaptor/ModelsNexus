@@ -1,265 +1,71 @@
 // File: renderer/src/components/ModelGrid.tsx
 
-import React, { useState } from 'react';
-import { FaStar, FaRegStar, FaExternalLinkAlt } from 'react-icons/fa';
-import { ImageMetadataModal } from './ImageMetadataModal';
-import type { IImageMeta } from '../types';
+import React from 'react';
+import { FaStar, FaRegStar } from 'react-icons/fa';
 
-type Model = {
-    id: number;
-    file_name: string;
-    model_name?: string;
+export interface ModelInfo {
     model_hash: string;
-    file_path: string;
-    model_type?: string;
-    version?: string;
+    cover_image: string | null;
+    file_name: string;
     base_model?: string;
-    is_favorite?: number;
-    preview_image_url?: string;
-    images?: string[];
-    tags?: string[];
-    prompt_positive?: string;
-    prompt_negative?: string;
-    civitai_url?: string;
-    huggingface_url?: string;
-    cover_image?: string | null;
-};
+    model_type?: string;
+    is_favorite: number;
+}
 
-type ModelGridProps = {
+interface ModelGridProps {
+    models: ModelInfo[];
     onSelectModel: (modelHash: string) => void;
     onToggleFavorite: (modelHash: string) => void;
-    models: Model[];
-    folderPath?: string;
-};
+}
 
-export function ModelGrid({
-                              onSelectModel,
-                              onToggleFavorite,
-                              models,
-                              folderPath,
-                          }: ModelGridProps) {
-    // Compose all images into a flat array for modal navigation
-    const imagesArr = models
-        .map(m =>
-            m.images && m.images.length > 0
-                ? m.images.map(img =>
-                    img.startsWith('file://') || img.startsWith('/')
-                        ? img
-                        : `file://${img}`
-                )
-                : [
-                    m.cover_image
-                        ? m.cover_image.startsWith('file://') || m.cover_image.startsWith('/')
-                            ? m.cover_image
-                            : `file://${m.cover_image}`
-                        : '/images/placeholder-model.png',
-                ]
-        )
-        .flat();
+// Path to your placeholder image in the built app
+const PLACEHOLDER = './images/placeholder-model.png';
 
-    const [modalData, setModalData] = useState<{
-        open: boolean;
-        idx: number;
-        meta: IImageMeta;
-        folderFiles: string[];
-    }>({ open: false, idx: 0, meta: {}, folderFiles: [] });
-
-    const placeholder = '/images/placeholder-model.png';
-
-    // Click handler for preview/thumbnail images
-    const handleThumbnailClick = async (filePath: string, index: number) => {
-        const meta: IImageMeta = await window.electronAPI.getImageMetadata(filePath);
-        setModalData({
-            open: true,
-            idx: index,
-            meta,
-            folderFiles: imagesArr,
-        });
-    };
-
+const ModelGrid: React.FC<ModelGridProps> = ({ models, onSelectModel, onToggleFavorite }) => {
     return (
-        <div className="min-h-screen bg-zinc-50 dark:bg-slate-500 transition-colors duration-300">
-            <h1 className="text-2xl font-bold mb-6 text-blue-800 dark:text-blue-200">Model Library</h1>
-            {/* Note: Change Card layout depending on App window width */}
-            {models.length === 0 ? (
-                <div className="col-span-full text-center text-zinc-400 dark:text-zinc-500 text-lg py-24">
-                    No models found. Click “Update Scan” or add model folders.
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 p-4">
+            {models.map(model => (
+                <div
+                    key={model.model_hash}
+                    className="bg-white dark:bg-zinc-800 rounded-lg shadow hover:shadow-lg transition p-4 cursor-pointer overflow-hidden"
+                    onClick={() => onSelectModel(model.model_hash)}
+                >
+                    <div className="relative w-full aspect-[3/4]">
+                        <img
+                            src={
+                                model.cover_image
+                                    ? model.cover_image.startsWith('file://')
+                                        ? model.cover_image
+                                        : `file://${model.cover_image}`
+                                    : PLACEHOLDER
+                            }
+                            alt={model.file_name}
+                            className="absolute inset-0 w-full h-full object-cover rounded-md"
+                        />
+                        <button
+                            onClick={e => {
+                                e.stopPropagation();
+                                onToggleFavorite(model.model_hash);
+                            }}
+                            title={model.is_favorite ? 'Unfavorite' : 'Favorite'}
+                            className="absolute top-2 right-2 bg-white dark:bg-zinc-700 p-1 rounded-full shadow-sm"
+                        >
+                            {model.is_favorite
+                                ? <FaStar className="text-yellow-400" />
+                                : <FaRegStar className="text-gray-400" />}
+                        </button>
+                    </div>
+
+                    <h3 className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                        {model.file_name}
+                    </h3>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {model.base_model || model.model_type || '–'}
+                    </p>
                 </div>
-            ) : (
-                <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
-                    {models.map(model => {
-                        // Determine main and thumbnail images
-                        const mainImage =
-                            model.cover_image ||
-                            model.images?.[0] ||
-                            model.preview_image_url ||
-                            placeholder;
-
-                        const thumbnailImages =
-                            model.images && model.images.length > 0
-                                ? model.images
-                                : mainImage !== placeholder
-                                    ? [mainImage]
-                                    : [];
-
-                        return (
-                            <div
-                                key={model.model_hash}
-                                className="
-                                    bg-white dark:bg-zinc-900
-                                    shadow-xl rounded-2xl p-5 flex flex-col relative items-center min-h-[420px] max-w-xs mx-auto
-                                    hover:ring-2 ring-blue-600 dark:ring-blue-400 transition cursor-pointer group
-                                "
-                                onClick={() => onSelectModel(model.model_hash)}
-                            >
-                                {/* Favorite Star */}
-                                <button
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        onToggleFavorite(model.model_hash);
-                                    }}
-                                    className="absolute top-1 right-1 text-yellow-400 text-2xl z-10"
-                                    title={model.is_favorite ? 'Unstar model' : 'Star model'}
-                                >
-                                    {model.is_favorite ? <FaStar /> : <FaRegStar />}
-                                </button>
-
-                                {/* Model Name */}
-                                <div className="font-bold text-lg mb-4 top-10 truncate text-center w-full text-zinc-800 dark:text-zinc-100" title={model.model_name || model.file_name}>
-                                    {model.model_name || model.file_name}
-                                </div>
-
-                                {/* Model type, base, version */}
-                                <div className="flex items-center gap-2 text-xs mb-2 w-full justify-center">
-                                    <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                                        {model.model_type || 'N/A'}
-                                    </span>
-                                    <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 px-2 py-1 rounded">
-                                        {model.base_model || '-'}
-                                    </span>
-                                    <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 px-2 py-1 rounded">
-                                        v{model.version || '-'}
-                                    </span>
-                                </div>
-
-                                {/* Preview Image */}
-                                {/* Note: Image layout for preview window w-full is width - h45 is height h36 = 9em factor of 4 */}
-                                <img
-                                    src={
-                                        mainImage.startsWith('file://') || mainImage.startsWith('/')
-                                            ? mainImage
-                                            : `file://${mainImage}`
-                                    }
-                                    alt="Preview"
-
-                                    className="rounded-xl mb-2 object-cover w-full h-72 bg-zinc-200 dark:bg-zinc-800 hover:opacity-85 transition"
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        handleThumbnailClick(mainImage, imagesArr.indexOf(mainImage));
-                                    }}
-                                    loading="lazy"
-                                />
-
-                                {/* Thumbnail Gallery */}
-                                <div className="flex gap-1 mb-2 overflow-x-auto w-full justify-center">
-                                    {thumbnailImages.slice(0, 5).map((img, idx) => {
-                                        const imgSrc =
-                                            img.startsWith('file://') || img.startsWith('/')
-                                                ? img
-                                                : `file://${img}`;
-                                        const globalIdx = imagesArr.indexOf(imgSrc);
-                                        return (
-                                            <img
-                                                key={imgSrc}
-                                                src={imgSrc}
-                                                alt={`Thumb ${idx + 1}`}
-                                                className="w-9 h-9 rounded shadow cursor-pointer hover:ring-2 ring-blue-500 dark:ring-blue-400"
-                                                onClick={e => {
-                                                    e.stopPropagation();
-                                                    handleThumbnailClick(imgSrc, globalIdx >= 0 ? globalIdx : 0);
-                                                }}
-                                            />
-                                        );
-                                    })}
-                                    {thumbnailImages.length > 5 && (
-                                        <span className="text-xs text-zinc-500 dark:text-zinc-300 px-2">
-                                            +{thumbnailImages.length - 5} more
-                                        </span>
-                                    )}
-                                </div>
-
-                                {/* Tags/Trigger Words */}
-                                {model.tags && model.tags.length > 0 && (
-                                    <div className="mb-1 flex flex-wrap gap-1 justify-center">
-                                        {model.tags.slice(0, 6).map(tag => (
-                                            <span
-                                                key={tag}
-                                                className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-0.5 rounded text-xs"
-                                            >
-                                                {tag}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {/* Prompts
-                                <div className="mt-1 text-xs w-full">
-                                    <div>
-                                        <span className="font-semibold text-zinc-500 dark:text-zinc-300">Positive:</span>{' '}
-                                        <span className="font-mono text-zinc-700 dark:text-zinc-100">{model.prompt_positive || '–'}</span>
-                                    </div>
-                                    <div>
-                                        <span className="font-semibold text-zinc-500 dark:text-zinc-300">Negative:</span>{' '}
-                                        <span className="font-mono text-zinc-700 dark:text-zinc-100">{model.prompt_negative || '–'}</span>
-                                    </div>
-                                </div>
-                                */}
-                                {/* Action Links */}
-                                <div className="flex items-center gap-2 mt-auto pt-3 w-full justify-between">
-                                    {model.civitai_url && (
-                                        <a
-                                            href={model.civitai_url}
-                                            target="_blank"
-                                            rel="noopener"
-                                            title="View on Civitai"
-                                            onClick={e => e.stopPropagation()}
-                                            className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 text-xs"
-                                        >
-                                            Civitai <FaExternalLinkAlt />
-                                        </a>
-                                    )}
-                                    {model.huggingface_url && (
-                                        <a
-                                            href={model.huggingface_url}
-                                            target="_blank"
-                                            rel="noopener"
-                                            title="View on Hugging Face"
-                                            onClick={e => e.stopPropagation()}
-                                            className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 text-xs"
-                                        >
-                                            HuggingFace <FaExternalLinkAlt />
-                                        </a>
-                                    )}
-                                    <span className="text-xs truncate ml-auto text-zinc-500 dark:text-zinc-300" title={model.file_path}>
-                                        {model.file_path.split(/[\\/]/).pop()}
-                                    </span>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {modalData.open && (
-                <ImageMetadataModal
-                    folderFiles={modalData.folderFiles}
-                    startIndex={modalData.idx}
-                    initialMeta={modalData.meta}
-                    onClose={() => setModalData(prev => ({ ...prev, open: false }))}
-                />
-            )}
+            ))}
         </div>
     );
-}
+};
 
 export default ModelGrid;
