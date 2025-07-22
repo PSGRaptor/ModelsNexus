@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath } from 'url';
 import path, { dirname } from 'path';
+import { spawn } from 'child_process';
 import { updateModelMainImage } from '../db/db-utils.js';
 import {
     getAllModels,
@@ -251,6 +252,22 @@ ipcMain.handle('get-image-metadata', (_e, imgPath: string) =>
         });
     })
 );
+
+ipcMain.handle('read-prompt', async (_, imagePath: string) => {
+    const cliPath = path.join(app.getAppPath(), '../resources/sd-prompt-reader-cli.exe');
+    return new Promise((resolve, reject) => {
+        const proc = spawn(cliPath, ['-r', '-i', imagePath, '-f', 'JSON']);
+        let stdout = '';
+        proc.stdout.on('data', b => stdout += b);
+        proc.stderr.on('data', b => console.error(b.toString()));
+        proc.on('close', code => {
+            if (code !== 0) return reject(new Error(`CLI exited ${code}`));
+            try { resolve(JSON.parse(stdout)); }
+            catch { reject(new Error('Invalid JSON from prompt-reader')); }
+        });
+    });
+});
+
 
 // ---- NOTES & TAGS ----
 ipcMain.handle('getUserNote', (_e, hash: string) => getUserNote(hash));
