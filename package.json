@@ -1,13 +1,14 @@
 {
   "name": "modelsnexus",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "main": "main/main.js",
   "type": "module",
   "scripts": {
     "build:renderer": "cd renderer && yarn install && yarn build",
     "build:main": "tsc -p .",
     "build": "yarn build:renderer && yarn build:main",
+    "prepackage": "rimraf out",
     "package": "yarn build && electron-forge package",
     "make": "yarn build && electron-forge make",
     "start": "yarn build && electron-forge start",
@@ -44,7 +45,7 @@
     "@eslint/js": "^9.30.1",
     "@types/fs-extra": "^11.0.4",
     "@vitejs/plugin-react": "^4.6.0",
-    "electron": "^37.2.1",
+    "electron": "37.2.3",
     "eslint": "^9.30.1",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
@@ -58,37 +59,10 @@
     "@c4312/blake3-native": "3.0.0",
     "blake3-wasm": "2.1.5"
   },
-  "forge": {
+  "packagerConfig": {
     "asar": true,
-    "plugins": [
-      {
-        "name": "@electron-forge/plugin-auto-unpack-natives",
-        "config": {}
-      }
-    ],
-    "makers": [
-      {
-        "name": "@electron-forge/maker-squirrel",
-        "config": {
-          "name": "ModelsNexus",
-          "setupExe": "ModelsNexus-Setup.exe",
-          "shortcutName": "Models Nexus",
-          "title": "Models Nexus Installer",
-          "setupIcon": "./assets/logo.png",
-          "loadingGif": "./assets/logo.png"
-        }
-      },
-      {
-        "name": "@electron-forge/maker-zip"
-      },
-      {
-        "name": "@electron-forge/maker-deb",
-        "config": {}
-      },
-      {
-        "name": "@electron-forge/maker-rpm",
-        "config": {}
-      }
+    "extraResource": [
+      "resources/sd-prompt-reader-cli.exe"
     ]
   }
 }

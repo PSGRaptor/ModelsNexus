@@ -53,6 +53,9 @@ declare global {
             // Native file dialog
             openFileDialog(options: OpenDialogOptions): Promise<string[]>;
             selectModelMainImage(modelHash: string): Promise<SelectModelMainImageResult>;
+
+            readPrompt(imagePath: string): Promise<PromptResult>;
+            openPromptViewer(imagePath: string): Promise<boolean>;
         };
     }
 }

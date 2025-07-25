@@ -1,9 +1,18 @@
 // File: main/main.ts
-import fs from 'fs/promises';
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🚨 Unhandled Promise Rejection:', reason);
+});
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath } from 'url';
-import path, { dirname } from 'path';
-import { spawn } from 'child_process';
+import * as fs from 'fs';                      // for existsSync, mkdirSync, etc.
+import { promises as fsp } from 'fs';          // for async mkdir, readFile, etc.
+
+import * as path from 'path';                  // namespace import for path
+// If you still need dirname(), you can do:
+const { dirname } = path;
+// import path, { dirname } from 'path';
+import { spawn, ChildProcess } from 'child_process';
+let promptProcess: ChildProcess | null = null;
 import { updateModelMainImage } from '../db/db-utils.js';
 import {
     getAllModels,
@@ -73,9 +82,20 @@ function createMainWindow() {
 
 // Electron app events
 app.on('ready', async () => {
-    await initDb();
+    // ── Step 2: Initialize the DB (create file  run migrations) ─────────
+    try {
+        await initDb();
+        console.log('✅ Database initialized');
+    } catch (err) {
+        console.error('❌ Database initialization failed:', err);
+        // If the DB can’t open or migrate, quit rather than continue in a broken state
+        app.quit();
+        return;
+    }
+    // ── Now safe to spin up your window ───────────────────────────────────
     createMainWindow();
 });
+
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
@@ -150,7 +170,28 @@ ipcMain.handle('scanAndImportModels', async () => {
     const scanPaths = await getAllScanPaths();
     const win = mainWindow ?? BrowserWindow.getAllWindows()[0];
     if (!win) throw new Error('No window for scan-progress');
-    return scanAndImportModels(scanPaths.map(p => p.path), win.webContents, () => scanCancelled);
+    // 1️⃣ Run the folder‐import scan
+    const result = await scanAndImportModels(
+        scanPaths.map(p => p.path),
+        win.webContents,
+        () => scanCancelled
+    );
+
+    // 2️⃣ Immediately enrich each model’s metadata so we get cover_image_url populated
+    try {
+        const all = await getAllModels();  // Imported from './db/db-utils.js'
+        for (const m of all) {
+            if (!m.cover_image_url) {
+                // This writes the cover_image_url into the DB
+                await enrichModelFromAPI(m.model_hash);
+            }
+        }
+    } catch (err) {
+        console.error('[scanAndImportModels] metadata enrichment failed:', err);
+    }
+
+    // 3️⃣ Return the original scan result
+    return result;
 });
 
 ipcMain.handle('cancelScan', async () => {
@@ -225,11 +266,11 @@ ipcMain.handle('selectModelMainImage', async (_e, modelHash: string) => {
 
     const src = filePaths[0];
     const destDir = path.join(app.getPath('userData'), 'modelImages');
-    await fs.mkdir(destDir, { recursive: true });
+    await fsp.mkdir(destDir, { recursive: true });
     const ext = path.extname(src);
     const destName = `${modelHash}${ext}`;
     const destPath = path.join(destDir, destName);
-    await fs.copyFile(src, destPath);
+    await fsp.copyFile(src, destPath);
 
     // store with file:// so renderer can load it directly
     const fileUrl = `file://${destPath}`;
@@ -253,21 +294,69 @@ ipcMain.handle('get-image-metadata', (_e, imgPath: string) =>
     })
 );
 
-ipcMain.handle('read-prompt', async (_, imagePath: string) => {
-    const cliPath = path.join(app.getAppPath(), '../resources/sd-prompt-reader-cli.exe');
-    return new Promise((resolve, reject) => {
-        const proc = spawn(cliPath, ['-r', '-i', imagePath, '-f', 'JSON']);
-        let stdout = '';
-        proc.stdout.on('data', b => stdout += b);
-        proc.stderr.on('data', b => console.error(b.toString()));
-        proc.on('close', code => {
-            if (code !== 0) return reject(new Error(`CLI exited ${code}`));
-            try { resolve(JSON.parse(stdout)); }
-            catch { reject(new Error('Invalid JSON from prompt-reader')); }
-        });
+ipcMain.handle('open-prompt-viewer', (_evt, imagePath: string) => {
+    const exeName = 'sd-prompt-reader.exe';
+
+    // Possible locations for the GUI exe
+    const candidates = [
+        path.join(process.resourcesPath, exeName),
+        path.join(process.resourcesPath, 'resources', exeName),
+    ];
+    const exePath = candidates.find(fs.existsSync);
+    if (!exePath) {
+        console.error('❌ Cannot find Prompt Reader exe in:', candidates);
+        return false;
+    }
+
+    // If your image is still inside the ASAR, point at the unpacked copy
+    let realImage = imagePath;
+    if (app.isPackaged && imagePath.includes(`app.asar${path.sep}`)) {
+        realImage = imagePath.replace(
+            `app.asar${path.sep}`,
+            `app.asar.unpacked${path.sep}`
+        );
+    }
+
+    console.log('Launching Prompt Reader GUI:', exePath, realImage);
+
+    // Kill any prior instance
+    if (promptProcess && !promptProcess.killed) {
+        promptProcess.kill();
+    }
+
+    // Spawn with shell: true for better Windows compatibility
+    promptProcess = spawn(exePath, [ realImage ], {
+        shell: true,
+        windowsHide: false,
+        // stdio: 'ignore',          // ← comment out for now so we see stdout/stderr
+        detached: false             // ← run attached so the parent console captures output
     });
+
+    // Diagnostics:
+    promptProcess.on('error', err => {
+        console.error('❌ Failed to launch Prompt Reader:', err);
+    });
+    promptProcess.on('exit', (code, signal) => {
+        console.log(`🔔 Prompt Reader exited with code=${code} signal=${signal}`);
+    });
+    promptProcess.stdout?.on('data', d =>
+        console.log('📤 Prompt Reader stdout:', d.toString())
+    );
+    promptProcess.stderr?.on('data', d =>
+        console.error('📥 Prompt Reader stderr:', d.toString())
+    );
+
+    // No .unref() while debugging
+    return true;
 });
 
+ipcMain.handle('selectFolder', async () => {
+    const result = await dialog.showOpenDialog({
+        properties: ['openDirectory']
+    });
+    // If the user cancelled, return null; otherwise return the first folder path.
+    return result.canceled ? null : result.filePaths[0];
+});
 
 // ---- NOTES & TAGS ----
 ipcMain.handle('getUserNote', (_e, hash: string) => getUserNote(hash));

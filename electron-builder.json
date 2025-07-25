@@ -1,0 +1,11 @@
+{
+  "appId": "com.psgraptor.modelsnexus",
+  "productName": "Models Nexus",
+  "files": [
+    "main/**/*",
+    "renderer/**/*",
+    "resources/**/*",
+    "package.json"
+  ]
+}
+

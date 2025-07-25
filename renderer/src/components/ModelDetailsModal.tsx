@@ -1,7 +1,6 @@
 // File: renderer/src/components/ModelDetailsModal.tsx
 
 import React, { useEffect, useState, ChangeEvent, DragEvent } from 'react';
-import PromptViewerModal, { PromptData } from './PromptViewerModal';
 import {
     FaExternalLinkAlt,
     FaChevronLeft,
@@ -253,31 +252,11 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
     const renderHtml = (html: string) => (
         <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: html }} />
     );
-
-    // ─ Prompt-Viewer state ─────────────────────────────────────────────────────
-    const [promptModalOpen, setPromptModalOpen] = useState(false);
-    const [promptData, setPromptData]           = useState<PromptData | null>(null);
-
-    // Close prompt viewer whenever the image carousel index changes
-    useEffect(() => {
-        setPromptModalOpen(false);
-    }, [modalImageIdx]);
-
-    const handleShowPrompt = async () => {
+    const handleShowPrompt = () => {
         if (modalImageIdx === null) return;
-        // Derive the path of the currently viewed image
-        const selectedImage = (isEditing ? editImages : images)[modalImageIdx];
-        try {
-            const data = await (window as any).api.readPrompt(selectedImage);
-            setPromptData(data);
-            setPromptModalOpen(true);
-        } catch (err) {
-            console.error('sd-prompt-reader failed:', err);
-            // TODO: show a toast or inline error if you have one
-        }
+        const selected = (isEditing ? editImages : images)[modalImageIdx];
+        window.electronAPI.openPromptViewer(selected);
     };
-    // ──────────────────────────────────────────────────────────────────────────
-
 
     return (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
@@ -585,20 +564,12 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                         </button>
                         {/* Prompt Viewer action */}
                         <button
-                            onClick={e => { e.stopPropagation(); handleShowPrompt(); }}
+                            onClick={handleShowPrompt}
                             className="absolute bottom-4 right-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
                             Prompt Viewer
                         </button>
                     </div>
-                )}
-                {/* Render PromptViewerModal */}
-                {promptModalOpen && promptData && modalImageIdx !== null && (
-                    <PromptViewerModal
-                        image={(isEditing ? editImages : images)[modalImageIdx]}
-                        data={promptData}
-                        onClose={() => setPromptModalOpen(false)}
-                    />
                 )}
 
                 {/* Conflict modal */}
