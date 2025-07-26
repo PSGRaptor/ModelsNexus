@@ -52,7 +52,6 @@ let scanCancelled = false;
  * Create the main application window
  */
 function createMainWindow() {
-    const iconPath = path.join(__dirname, '../resources/icon.png');
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
