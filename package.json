@@ -1,7 +1,7 @@
 {
   "name": "modelsnexus",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A cross-platform model browser and prompt-viewer for Stable Diffusion models",
   "author": "Badaxiom",
   "main": "main/main.js",
@@ -11,9 +11,10 @@
     "build:main": "tsc -p .",
     "build": "yarn build:renderer && yarn build:main",
     "prepackage": "rimraf out",
-    "package": "yarn build && electron-forge package",
-    "make": "yarn build && electron-forge make",
-    "start": "yarn build && electron-forge start",
+    "package": "yarn prepackage && yarn build && electron-forge package",
+    "dist": "yarn package && electron-builder --prepackaged out/modelsnexus-win32-x64",
+    "make": "yarn package && electron-forge make",
+    "start": "yarn package && electron-forge start",
     "lint": "eslint . --ext .ts,.tsx",
     "update-hashmap": "ts-node main/utils/buildCivitaiHashMap.ts",
     "clean:win": "for /r %i in (*.js *.js.map) do @(if /i not \"%~nxi\"==\"postcss.config.js\" if /i not \"%~nxi\"==\"tailwind.config.js\" if /i not \"%~nxi\"==\"vite.config.js\" if /i not \"%~fi\"==\"%cd%\\node_modules\\%~nxi\" if /i not \"%~fi\"==\"%cd%\\dist\\%~nxi\" del \"%~fi\")"
@@ -48,6 +49,7 @@
     "@types/fs-extra": "^11.0.4",
     "@vitejs/plugin-react": "^4.6.0",
     "electron": "37.2.3",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.30.1",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
@@ -61,10 +63,35 @@
     "@c4312/blake3-native": "3.0.0",
     "blake3-wasm": "2.1.5"
   },
-  "packagerConfig": {
-    "asar": true,
-    "extraResource": [
-      "resources/sd-prompt-reader-cli.exe"
-    ]
+  "forge": {
+    "packagerConfig": {
+      "asar": {
+        "unpack": [
+          "resources/*.exe"
+        ]
+      },
+      "extraResource": [
+        "resources/sd-prompt-reader-cli.exe",
+        "resources/sd-prompt-reader.exe"
+      ]
+    }
+  },
+  "build": {
+    "appId": "com.badaxiom.modelsnexus",
+    "productName": "Models Nexus",
+    "files": ["**/*"],
+    "extraResources": [
+      "resources/*.exe"
+    ],
+    "asarUnpack": [
+      "resources/*.exe"
+    ],
+    "compression": "store",
+    "win": {
+      "target": [
+        { "target": "zip", "arch": ["x64"] }
+      ],
+      "icon": "resources/icon.ico"
+    }
   }
 }
