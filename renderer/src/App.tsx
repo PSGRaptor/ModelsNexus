@@ -36,7 +36,18 @@ const App: React.FC = () => {
     const fetchModels = useCallback(async () => {
         setLoading(true);
         if (window.electronAPI && window.electronAPI.getAllModelsWithCover) {
-            setModels(await window.electronAPI.getAllModelsWithCover());
+            // Pull raw rows (which include `cover_image_url`)…
+            const raw = await window.electronAPI.getAllModelsWithCover();
+            // …then map to the ModelGrid interface by aliasing cover_image_url → cover_image
+            setModels(raw.map((m: any) => ({
+                model_hash: m.model_hash,
+                file_name: m.file_name,
+                base_model: m.base_model,
+                model_type: m.model_type,
+                is_favorite: m.is_favorite,
+                // ModelGrid uses `cover_image`, so copy over your DB field here:
+                cover_image: m.main_image_path || null
+            })));
         }
         setLoading(false);
     }, []);

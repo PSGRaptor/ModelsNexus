@@ -12,6 +12,10 @@ module.exports = {
         icon: path.resolve(__dirname, 'resources', 'icon'),
 
         // Keep everything in an ASAR except your image folders
+        "ignore": [
+            "^/dist($|/)",
+            "^/out($|/)"
+        ],
         asar: {
             unpack: [
                 '**/images/**',
@@ -21,7 +25,7 @@ module.exports = {
         },
 
         // Copy these two binaries straight into out/.../resources/
-        extraResources: [
+        extraResource: [
             path.resolve(__dirname, 'resources', 'sd-prompt-reader.exe'),
             path.resolve(__dirname, 'resources', 'sd-prompt-reader-cli.exe')
         ],

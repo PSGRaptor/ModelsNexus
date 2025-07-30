@@ -47,6 +47,110 @@ const __dirname = dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let scanCancelled = false;
+let promptViewerWindow: BrowserWindow | null = null;
+let promptReaderProcess: ChildProcess | null = null;
+let lastImagePath: string | null = null;
+
+function getPromptReaderExePath(): string {
+    const base = app.isPackaged
+        ? process.resourcesPath
+        : path.resolve(__dirname, '../resources');
+    let exePath = path.join(base, 'sd-prompt-reader.exe');
+    if (!fs.existsSync(exePath) && fs.existsSync(path.join(base, 'app.asar.unpacked', 'resources', 'sd-prompt-reader.exe'))) {
+        exePath = path.join(base, 'app.asar.unpacked', 'resources', 'sd-prompt-reader.exe');
+    }
+    return exePath;
+}
+
+// Spawn the EXE if not already running
+function startPromptReader(imagePath?: string) {
+    if (promptReaderProcess && !promptReaderProcess.killed) {
+        // If running and we have a new image, send image path
+        if (imagePath && imagePath !== lastImagePath) {
+            sendImageToPromptReader(imagePath);
+        }
+        // Try to show window (Windows only)
+        bringPromptReaderToFront();
+        return;
+    }
+    const exePath = getPromptReaderExePath();
+    if (!fs.existsSync(exePath)) {
+        console.error('[PromptReader] EXE not found:', exePath);
+        return;
+    }
+    const args = imagePath ? [imagePath] : [];
+    promptReaderProcess = spawn(exePath, args, { detached: true, stdio: 'ignore' });
+    if (promptReaderProcess) {
+        promptReaderProcess.kill();
+    }
+    lastImagePath = imagePath || null;
+}
+
+// Bring EXE window to front (Windows only)
+function bringPromptReaderToFront() {
+    // You can use "node-window-manager" or "ffi-napi" for true window activation,
+    // but for most CLI image viewers, relaunching with the same process is sufficient.
+    // For a minimal solution, do nothing; most EXEs will auto-activate.
+    // To make this robust, you can add win32 API code to force show, if needed.
+}
+
+// Send new image path to EXE (if your EXE supports e.g. an IPC or custom file drop)
+function sendImageToPromptReader(imagePath: string) {
+    if (!promptReaderProcess) return;
+    // If your EXE supports a watcher file, named pipe, or accepts stdin, use it here.
+    // If not, the only way to update is to close & respawn with the new image.
+    // We'll just relaunch for now, which ensures the image shows.
+    // Kill the previous process and start a new one
+    try {
+        promptReaderProcess.kill();
+    } catch {}
+    promptReaderProcess = null;
+    startPromptReader(imagePath);
+}
+
+
+function getPromptViewerWindow() {
+    if (promptViewerWindow && !promptViewerWindow.isDestroyed()) {
+        return promptViewerWindow;
+    }
+    promptViewerWindow = new BrowserWindow({
+        width: 520,
+        height: 720,
+        show: false,
+        title: "Prompt Viewer",
+        resizable: true,
+        minimizable: false,
+        maximizable: false,
+        autoHideMenuBar: true,
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'), // adjust as needed!
+            contextIsolation: true,
+            nodeIntegration: false,
+        },
+    });
+    // Load your prompt viewer HTML or route (React: use loadURL to point to correct route)
+    promptViewerWindow.loadFile(path.join(__dirname, '../renderer/dist/prompt-viewer.html'));
+    // Or if using Vite/React SPA, use: promptViewerWindow.loadURL('app://.../prompt-viewer')
+    promptViewerWindow.on('close', (e) => {
+        e.preventDefault();
+        promptViewerWindow?.hide();
+    });
+    promptViewerWindow.on('closed', () => {
+        promptViewerWindow = null;
+    });
+    return promptViewerWindow;
+}
+
+// --- Open and update Prompt Viewer on demand ---
+ipcMain.handle('openPromptViewer', async (_event, imagePath: string) => {
+    //const win = getPromptViewerWindow();
+    //if (!win) return;
+    //win.show();
+    //win.focus();
+    // Send the new image path to renderer side for display
+    //win.webContents.send('showPrompt', imagePath);
+    startPromptReader(imagePath);
+});
 
 /**
  * Create the main application window
@@ -84,6 +188,8 @@ function createMainWindow() {
 // Electron app events
 app.on('ready', async () => {
     // ── Step 2: Initialize the DB (create file  run migrations) ─────────
+    // getPromptViewerWindow();
+    startPromptReader();
     try {
         await initDb();
         console.log('✅ Database initialized');
@@ -171,6 +277,7 @@ ipcMain.handle('scanAndImportModels', async () => {
     const scanPaths = await getAllScanPaths();
     const win = mainWindow ?? BrowserWindow.getAllWindows()[0];
     if (!win) throw new Error('No window for scan-progress');
+
     // 1️⃣ Run the folder‐import scan
     const result = await scanAndImportModels(
         scanPaths.map(p => p.path),
@@ -178,13 +285,30 @@ ipcMain.handle('scanAndImportModels', async () => {
         () => scanCancelled
     );
 
-    // 2️⃣ Immediately enrich each model’s metadata so we get cover_image_url populated
+    // 2️⃣ Immediately enrich each model’s metadata and save a LOCAL main image
     try {
         const all = await getAllModels();  // Imported from './db/db-utils.js'
         for (const m of all) {
-            if (!m.cover_image_url) {
-                // This writes the cover_image_url into the DB
-                await enrichModelFromAPI(m.model_hash);
+            // CHANGE: Use m.main_image_path, not m.cover_image_url
+            if (!m.main_image_path) {
+                // 2.1️⃣ Fetch metadata & update DB
+                const metadata = await enrichModelFromAPI(m.model_hash);
+
+                // 2.2️⃣ Download the cover image (if provided)
+                if (metadata.cover_image_url) {
+                    // Download and get local path
+                    const localCoverPath = await saveModelImage(m.model_hash, metadata.cover_image_url);
+                    const fileUrl = localCoverPath.startsWith('file://') ? localCoverPath : `file://${localCoverPath}`;
+                    // Save file:// path to main_image_path in the database
+                    await updateModelMainImage(m.model_hash, fileUrl);
+                }
+
+                // 2.3️⃣ Download any additional gallery images
+                if (Array.isArray((metadata as any).image_urls)) {
+                    for (const url of (metadata as any).image_urls) {
+                        await saveModelImage(m.model_hash, url);
+                    }
+                }
             }
         }
     } catch (err) {
@@ -223,7 +347,51 @@ ipcMain.handle('toggleFavoriteModel', async (_e, hash: string) => {
 });
 
 // ---- METADATA ENRICHMENT ----
-ipcMain.handle('enrichModelFromAPI', (_e, hash: string) => enrichModelFromAPI(hash));
+//ipcMain.handle('enrichModelFromAPI', (_e, hash: string) => enrichModelFromAPI(hash));
+ipcMain.handle('enrichModelFromAPI', async (_e, hash: string) => {
+    // 1️⃣ Fetch metadata & update DB (same as before)
+    const metadata = await enrichModelFromAPI(hash);
+
+    // 2️⃣ Gather all image URLs you want to save
+    const urls: string[] = [];
+    let mainImageLocalPath: string | null = null;
+    if (metadata.cover_image_url) {
+        urls.push(metadata.cover_image_url);
+    }
+    if (Array.isArray(metadata.image_urls)) {
+        urls.push(...metadata.image_urls);
+    }
+    if (Array.isArray(metadata.gallery)) {
+        urls.push(...metadata.gallery);
+    }
+
+    // 3️⃣ Download & save each one locally
+    for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        try {
+            const localPath = await saveModelImage(hash, url, i);
+            // The first image is the cover; update DB with file:// path
+            if (i === 0 && localPath) {
+                const fileUrl = localPath.startsWith('file://') ? localPath : `file://${localPath}`;
+                // Save to main_image_path in DB
+                await updateModelMainImage(hash, fileUrl);
+                mainImageLocalPath = fileUrl;
+            }
+        } catch (err) {
+            console.error(`[enrichModelFromAPI] failed to save image ${url}:`, err);
+        }
+    }
+
+    // Optionally, include the updated main_image_path in the returned metadata
+    if (mainImageLocalPath) {
+        metadata.main_image_path = mainImageLocalPath;
+    }
+
+    return metadata;
+});
+
+
+
 ipcMain.handle('getModelByHash', (_e, hash: string) => getModelByHash(hash));
 
 // ---- CIVITAI HASH MAP ----

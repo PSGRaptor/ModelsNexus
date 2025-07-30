@@ -57,6 +57,7 @@ declare global {
             readPrompt(imagePath: string): Promise<PromptResult>;
             openPromptViewer(imagePath: string): Promise<boolean>;
         };
+        promptAPI?: { onShowPrompt?: (cb: (img: string) => void) => void; };
     }
 }
 

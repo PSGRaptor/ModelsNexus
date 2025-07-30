@@ -1,7 +1,7 @@
 {
   "name": "modelsnexus",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.10",
   "description": "A cross-platform model browser and prompt-viewer for Stable Diffusion models",
   "author": "Badaxiom",
   "main": "main/main.js",
@@ -77,11 +77,18 @@
     }
   },
   "build": {
+    "directories": {
+      "buildResources": "resources"
+    },
     "appId": "com.badaxiom.modelsnexus",
     "productName": "Models Nexus",
     "files": ["**/*"],
     "extraResources": [
-      "resources/*.exe"
+      {
+        "from": "resources",
+        "to": "resources",
+        "filter": ["*.exe"]
+      }
     ],
     "asarUnpack": [
       "resources/*.exe"

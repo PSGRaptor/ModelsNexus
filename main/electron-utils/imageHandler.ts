@@ -5,6 +5,7 @@ import path from 'path';
 import axios from 'axios';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { app } from 'electron';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -18,10 +19,10 @@ export async function saveModelImage(
     index?: number,
     metadata?: any
 ): Promise<string> {
-    const imagesDir = path.join(__dirname, '../../images', modelHash);
+    const imagesDir = path.join(app.getPath('userData'), 'images', modelHash);
     ensureDir(imagesDir);
 
-    // Prune to 24 if >=25
+    // Prune to max 24 images
     let imgFiles = fs
         .readdirSync(imagesDir)
         .filter(f => /\.(png|jpe?g)$/i.test(f));
@@ -41,8 +42,11 @@ export async function saveModelImage(
     if (fs.existsSync(source)) {
         ext = path.extname(source) || ext;
     } else {
-        try { ext = path.extname(new URL(source).pathname) || ext; }
-        catch { ext = '.png'; }
+        try {
+            ext = path.extname(new URL(source).pathname) || ext;
+        } catch {
+            ext = '.png';
+        }
     }
     const baseName = `img_${safeIndex}`;
     const imgName = `${baseName}${ext}`;
@@ -60,11 +64,14 @@ export async function saveModelImage(
         await fs.promises.writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf-8');
     }
 
-    return imgPath;
+    // Always return as a file:// URI for Electron/Browser compatibility
+    // Avoid double prefix
+    return imgPath.startsWith('file://') ? imgPath : `file://${imgPath}`;
 }
 
+
 export async function deleteModelImage(modelHash: string, fileName: string): Promise<void> {
-    const imagesDir = path.join(__dirname, '../../images', modelHash);
+    const imagesDir = path.join(app.getPath('userData'), 'images', modelHash);
     const target = path.join(imagesDir, fileName);
     if (fs.existsSync(target)) {
         await fs.promises.unlink(target);
@@ -72,7 +79,7 @@ export async function deleteModelImage(modelHash: string, fileName: string): Pro
 }
 
 export function getModelImages(modelHash: string): string[] {
-    const imagesDir = path.join(__dirname, '../../images', modelHash);
+    const imagesDir = path.join(app.getPath('userData'), 'images', modelHash);
     if (!fs.existsSync(imagesDir)) return [];
     return fs
         .readdirSync(imagesDir)

@@ -1,6 +1,7 @@
 // File: renderer/src/components/ModelDetailsModal.tsx
 
 import React, { useEffect, useState, ChangeEvent, DragEvent } from 'react';
+import placeholderModel from '../assets/placeholder-model.png';
 import {
     FaExternalLinkAlt,
     FaChevronLeft,
@@ -322,9 +323,11 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 className="max-h-40 rounded shadow border"
                             />
                         ) : (
-                            <div className="h-40 w-full flex items-center justify-center bg-gray-100 dark:bg-zinc-800 text-gray-500">
-                                No main image
-                            </div>
+                            <img
+                                src={placeholderModel}
+                                alt="Placeholder"
+                                className="max-h-40 w-full object-contain rounded shadow border bg-gray-100 dark:bg-zinc-800"
+                            />
                         )}
                     </div>
                     <button

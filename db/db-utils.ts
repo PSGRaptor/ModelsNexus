@@ -181,11 +181,11 @@ export async function updateModel(model: any): Promise<void> {
 }
 
 // Sets the main (cover) image path for a model
-export async function updateModelMainImage(model_hash: string, imagePath: string): Promise<void> {
+export async function updateModelMainImage(modelHash: string, imagePath: string): Promise<void> {
     await db.run(
         'UPDATE models SET main_image_path = ? WHERE model_hash = ?',
         imagePath,
-        model_hash
+        modelHash
     );
 }
 
