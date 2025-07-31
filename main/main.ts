@@ -39,6 +39,7 @@ import { getModelByHash } from '../db/db-utils.js';
 import { buildCivitaiHashMap } from './utils/buildCivitaiHashMap.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import type { Tags } from 'exifreader';
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.join(app.getAppPath(), 'resources', 'sd-prompt-reader-cli.exe');
@@ -526,6 +527,34 @@ ipcMain.handle('selectFolder', async () => {
     // If the user cancelled, return null; otherwise return the first folder path.
     return result.canceled ? null : result.filePaths[0];
 });
+
+// File: main/main.ts
+
+ipcMain.handle('getPromptMetadata', async (_e, imagePath: string): Promise<string> => {
+    try {
+        const buffer = await fs.promises.readFile(imagePath);
+        const ExifReader = await import('exifreader');
+        const tags = ExifReader.load(buffer, { expanded: true, includeUnknown: true }) as any;
+
+        // Attempt preferred metadata fields, using flexible keys
+        const desc =
+            tags['XMP:parameters']?.description ||
+            tags['XMP:Description']?.description ||
+            tags['ImageDescription']?.description ||
+            tags['Image']?.description;
+
+        if (typeof desc === 'string' && desc.trim()) {
+            return desc;
+        }
+
+        // Fall back to JSON dump of tags
+        return JSON.stringify(tags, null, 2);
+    } catch (err) {
+        console.error('[getPromptMetadata]', err);
+        return '';
+    }
+});
+
 
 // ---- NOTES & TAGS ----
 ipcMain.handle('getUserNote', (_e, hash: string) => getUserNote(hash));

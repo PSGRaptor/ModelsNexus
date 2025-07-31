@@ -1,6 +1,7 @@
 // File: renderer/src/components/ModelDetailsModal.tsx
 
 import React, { useEffect, useState, ChangeEvent, DragEvent } from 'react';
+import PromptViewerModal from './PromptViewerModal';
 import placeholderModel from '../assets/placeholder-model.png';
 import {
     FaExternalLinkAlt,
@@ -67,6 +68,9 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
     const [modalImageIdx, setModalImageIdx] = useState<number | null>(null);
     const [showOnlineUrl, setShowOnlineUrl] = useState<string | null>(null);
     const [notesExpanded, setNotesExpanded] = useState(false);
+
+    const [promptModalOpen, setPromptModalOpen] = useState(false);
+    const [currentPromptPath, setCurrentPromptPath] = useState<string | null>(null);
 
     // Add local paths from native dialog
     const addLocalFiles = (paths: string[]) => {
@@ -567,7 +571,11 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                         </button>
                         {/* Prompt Viewer action */}
                         <button
-                            onClick={handleShowPrompt}
+                            onClick={() => {
+                                const selected = (isEditing ? editImages : images)[modalImageIdx];
+                                setCurrentPromptPath(selected.startsWith('file://') ? selected : `file://${selected}`);
+                                setPromptModalOpen(true);
+                            }}
                             className="absolute bottom-4 right-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
                             Prompt Viewer
@@ -609,6 +617,15 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                             />
                         </div>
                     </div>
+                )}
+                {promptModalOpen && currentPromptPath && (
+                    <PromptViewerModal
+                        imagePath={currentPromptPath}
+                        onClose={() => {
+                            setPromptModalOpen(false);
+                            setCurrentPromptPath(null);
+                        }}
+                    />
                 )}
             </div>
         </div>

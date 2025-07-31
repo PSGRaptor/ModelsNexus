@@ -46,13 +46,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     deleteModelImage: (hash: string, name: string) => ipcRenderer.invoke('deleteModelImage', hash, name),
     openPromptViewer: (imgPath: string) => ipcRenderer.invoke('open-prompt-viewer', imgPath),
+    getPromptMetadata: (imagePath: string) => ipcRenderer.invoke('getPromptMetadata', imagePath),
 
 });
 
 contextBridge.exposeInMainWorld('promptAPI', {
     onShowPrompt: (cb: (imagePath: string) => void) => {
-        ipcRenderer.on('showPrompt', (_event: any, imagePath: string) => {
-            cb(imagePath);
-        });
+        ipcRenderer.on('showPrompt', (_event: any, imagePath: string) => cb(imagePath))
+    },
+    getPromptMetadata: (localPath: string): Promise<string> => {
+        return ipcRenderer.invoke('getPromptMetadata', localPath)
     }
 });

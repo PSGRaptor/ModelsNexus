@@ -3,6 +3,11 @@
 import type { IImageMeta } from './types';
 import type { OpenDialogOptions } from 'electron';
 
+export interface PromptAPI {
+    onShowPrompt?: (cb: (img: string) => void) => void
+    getPromptMetadata?: (localPath: string) => Promise<string>
+}
+
 declare global {
     interface Window {
         electronAPI: {
@@ -57,7 +62,7 @@ declare global {
             readPrompt(imagePath: string): Promise<PromptResult>;
             openPromptViewer(imagePath: string): Promise<boolean>;
         };
-        promptAPI?: { onShowPrompt?: (cb: (img: string) => void) => void; };
+        promptAPI?: PromptAPI
     }
 }
 

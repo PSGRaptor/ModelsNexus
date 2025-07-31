@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "baseUrl": ".",
-    "typeRoots": ["src", "node_modules/@types"]
+    "typeRoots": ["src/types", "node_modules/@types"]
   },
   "include": [
     "main",
@@ -19,7 +19,8 @@
     "renderer/src/components",
     "db",
     "api",
-    "src"
+    "src",
+    "src/types"
   ],
   "exclude": [
     "node_modules",

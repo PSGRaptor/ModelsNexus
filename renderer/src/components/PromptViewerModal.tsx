@@ -1,30 +1,59 @@
 // File: renderer/src/components/PromptViewerModal.tsx
 
 import React, { useEffect, useState } from 'react';
+import { FaTimes } from 'react-icons/fa';
 
-// Add TypeScript declaration so window.promptAPI is recognized
-declare global {
-    interface Window {
-        promptAPI?: {
-            onShowPrompt?: (cb: (img: string) => void) => void;
-        };
-    }
+// No declare global here, global.d.ts handles types
+
+interface PromptViewerModalProps {
+    imagePath: string; // file:// URI
+    onClose: () => void;
 }
 
-const PromptViewerModal: React.FC = () => {
-    const [imagePath, setImagePath] = useState<string | null>(null);
+/**
+ * Only one exported component! No duplicates.
+ */
+const PromptViewerModal: React.FC<PromptViewerModalProps> = ({
+                                                                 imagePath,
+                                                                 onClose,
+                                                             }) => {
+    const [metadata, setMetadata] = useState<string>('Loading metadata…');
 
     useEffect(() => {
-        // Listen for prompt image changes from main process
-        window.promptAPI?.onShowPrompt?.((img: string) => setImagePath(img));
-    }, []);
+        const localPath = imagePath.startsWith('file://')
+            ? imagePath.slice(7)
+            : imagePath;
+        window.promptAPI
+            ?.getPromptMetadata?.(localPath)
+            .then((meta: string) => setMetadata(meta || '<No metadata available>'))
+            .catch((err: Error) => {
+                console.error(err);
+                setMetadata('<Error reading metadata>');
+            });
+    }, [imagePath]);
 
-    if (!imagePath) {
-        return <div className="text-center mt-10">No prompt image selected.</div>;
-    }
     return (
-        <div className="flex flex-col items-center p-4">
-            <img src={imagePath} alt="Prompt" className="max-h-[90vh] max-w-[90vw] rounded-lg shadow" />
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center">
+            <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-lg max-w-[90vw] max-h-[90vh] overflow-hidden flex relative">
+                <button
+                    className="absolute top-2 right-2 text-white text-2xl"
+                    onClick={onClose}
+                >
+                    <FaTimes />
+                </button>
+                <div className="flex flex-1">
+                    <div className="w-1/2 bg-black flex items-center justify-center">
+                        <img
+                            src={imagePath}
+                            alt="Prompt"
+                            className="max-h-[90vh] max-w-full object-contain"
+                        />
+                    </div>
+                    <div className="w-1/2 p-4 overflow-auto bg-gray-50 dark:bg-zinc-800 text-sm font-mono whitespace-pre-wrap text-gray-800 dark:text-gray-100">
+                        {metadata}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
