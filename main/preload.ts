@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openFileDialog: (options: Electron.OpenDialogOptions) => ipcRenderer.invoke('dialog:openFileDialog', options),
 
     deleteModelImage: (hash: string, name: string) => ipcRenderer.invoke('deleteModelImage', hash, name),
-    openPromptViewer: (imgPath: string) => ipcRenderer.invoke('open-prompt-viewer', imgPath),
+    //openPromptViewer: (imgPath: string) => ipcRenderer.invoke('open-prompt-viewer', imgPath),
     getPromptMetadata: (imagePath: string) => ipcRenderer.invoke('getPromptMetadata', imagePath),
 
 });

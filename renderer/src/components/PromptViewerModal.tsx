@@ -19,10 +19,18 @@ const PromptViewerModal: React.FC<PromptViewerModalProps> = ({
                                                              }) => {
     const [metadata, setMetadata] = useState<string>('Loading metadata…');
 
+    function normalizeImagePath(imagePath: string): string {
+        // Remove file:// or file:/// prefix
+        let p = imagePath.replace(/^file:\/+/, '');
+        // On Windows, remove leading slash if present
+        if (navigator.userAgent.includes('Windows') && p[0] === '/') {
+            p = p.slice(1);
+        }
+        return p;
+    }
+
     useEffect(() => {
-        const localPath = imagePath.startsWith('file://')
-            ? imagePath.slice(7)
-            : imagePath;
+        const localPath = normalizeImagePath(imagePath);
         window.promptAPI
             ?.getPromptMetadata?.(localPath)
             .then((meta: string) => setMetadata(meta || '<No metadata available>'))
@@ -31,6 +39,7 @@ const PromptViewerModal: React.FC<PromptViewerModalProps> = ({
                 setMetadata('<Error reading metadata>');
             });
     }, [imagePath]);
+
 
     return (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center">

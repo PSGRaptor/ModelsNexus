@@ -307,6 +307,10 @@ ipcMain.handle('scanAndImportModels', async () => {
                 // 2.3️⃣ Download any additional gallery images
                 if (Array.isArray((metadata as any).image_urls)) {
                     for (const url of (metadata as any).image_urls) {
+                        if (!url || !url.toLowerCase().endsWith('.png')) {
+                            console.log(`[scanAndImportModels] Skipping non-PNG image: ${url}`);
+                            continue;
+                        }
                         await saveModelImage(m.model_hash, url);
                     }
                 }
@@ -349,13 +353,17 @@ ipcMain.handle('toggleFavoriteModel', async (_e, hash: string) => {
 
 // ---- METADATA ENRICHMENT ----
 //ipcMain.handle('enrichModelFromAPI', (_e, hash: string) => enrichModelFromAPI(hash));
+// File: main/main.ts
+
+// File: main/main.ts
+
 ipcMain.handle('enrichModelFromAPI', async (_e, hash: string) => {
     // 1️⃣ Fetch metadata & update DB (same as before)
     const metadata = await enrichModelFromAPI(hash);
 
-    // 2️⃣ Gather all image URLs you want to save
-    const urls: string[] = [];
-    let mainImageLocalPath: string | null = null;
+    // 2️⃣ Gather all image URLs you want to save (PNG priority, then JPEG)
+    const urls = [];
+    let mainImageLocalPath = null;
     if (metadata.cover_image_url) {
         urls.push(metadata.cover_image_url);
     }
@@ -366,15 +374,20 @@ ipcMain.handle('enrichModelFromAPI', async (_e, hash: string) => {
         urls.push(...metadata.gallery);
     }
 
+    // PATCH: prioritize PNG, fallback to JPEG, up to 25 total images
+    const pngUrls = urls.filter(u => typeof u === 'string' && /\.png($|[?&])/i.test(u));
+    const jpegUrls = urls.filter(u => typeof u === 'string' && /\.jpe?g($|[?&])/i.test(u) && !pngUrls.includes(u));
+    const selectedUrls = pngUrls.concat(jpegUrls).slice(0, 25);
+
     // 3️⃣ Download & save each one locally
-    for (let i = 0; i < urls.length; i++) {
-        const url = urls[i];
+    for (let i = 0; i < selectedUrls.length; i++) {
+        const url = selectedUrls[i];
+        if (!url) continue;
         try {
             const localPath = await saveModelImage(hash, url, i);
-            // The first image is the cover; update DB with file:// path
+            // The first saved image (PNG or JPEG) is the cover; update DB with file:// path
             if (i === 0 && localPath) {
                 const fileUrl = localPath.startsWith('file://') ? localPath : `file://${localPath}`;
-                // Save to main_image_path in DB
                 await updateModelMainImage(hash, fileUrl);
                 mainImageLocalPath = fileUrl;
             }
@@ -390,8 +403,6 @@ ipcMain.handle('enrichModelFromAPI', async (_e, hash: string) => {
 
     return metadata;
 });
-
-
 
 ipcMain.handle('getModelByHash', (_e, hash: string) => getModelByHash(hash));
 
@@ -453,6 +464,7 @@ ipcMain.handle('selectModelMainImage', async (_e, modelHash: string) => {
 // ---- IMAGE METADATA via external CLI ----
 ipcMain.handle('get-image-metadata', (_e, imgPath: string) =>
     new Promise(resolve => {
+        console.log('[get-image-metadata] Attempting to read image metadata');
         execFile(cliPath, ['-r', '-i', imgPath, '-f', 'JSON'], (err, stdout) => {
             if (err) return resolve({ error: err.message });
             try {
@@ -530,30 +542,81 @@ ipcMain.handle('selectFolder', async () => {
 
 // File: main/main.ts
 
-ipcMain.handle('getPromptMetadata', async (_e, imagePath: string): Promise<string> => {
+ipcMain.handle('getPromptMetadata', async (_e, imagePath) => {
     try {
-        const buffer = await fs.promises.readFile(imagePath);
-        const ExifReader = await import('exifreader');
-        const tags = ExifReader.load(buffer, { expanded: true, includeUnknown: true }) as any;
+        console.log('[getPromptMetadata] Called with:', imagePath);
 
-        // Attempt preferred metadata fields, using flexible keys
-        const desc =
-            tags['XMP:parameters']?.description ||
-            tags['XMP:Description']?.description ||
-            tags['ImageDescription']?.description ||
-            tags['Image']?.description;
+        // Normalize Windows path and strip file:// if present
+        let normalizedPath = imagePath.replace(/^file:\/\//, '');
+        if (process.platform === 'win32' && normalizedPath.startsWith('/')) {
+            normalizedPath = normalizedPath.slice(1);
+        }
+        console.log('[getPromptMetadata] Normalized path:', normalizedPath);
 
-        if (typeof desc === 'string' && desc.trim()) {
-            return desc;
+        // Confirm file exists
+        if (!require('fs').existsSync(normalizedPath)) {
+            console.error('[getPromptMetadata] File does not exist:', normalizedPath);
+            return '<File does not exist>';
         }
 
-        // Fall back to JSON dump of tags
-        return JSON.stringify(tags, null, 2);
+        const buffer = await fs.promises.readFile(normalizedPath);
+        const ext = normalizedPath.split('.').pop()?.toLowerCase() || '';
+
+        // --- PNG: Try SD prompt in tEXt/iTXt chunks ---
+        if (ext === 'png') {
+            try {
+                const { PNG } = require('pngjs');
+                const png = PNG.sync.read(buffer);
+                if (png.text) {
+                    console.log('[getPromptMetadata] PNG tEXt keys:', Object.keys(png.text));
+                    if (png.text.parameters) return png.text.parameters;
+                    if (png.text.Description) return png.text.Description;
+                    // Try all keys heuristically
+                    for (const [k, v] of Object.entries(png.text)) {
+                        if (typeof v === 'string' && v.toLowerCase().includes('steps') && v.length > 40)
+                            return v;
+                    }
+                    return JSON.stringify(png.text, null, 2);
+                } else {
+                    console.warn('[getPromptMetadata] PNG has no tEXt chunk');
+                }
+            } catch (err) {
+                console.error('[getPromptMetadata] PNG tEXt parse failed:', err);
+            }
+        }
+
+        // --- JPEG/JPG and fallback: EXIF/XMP via exifreader ---
+        try {
+            const ExifReader = require('exifreader');
+            const tags = ExifReader.load(buffer, { expanded: true, includeUnknown: true });
+
+            // Look for any reasonable description fields (for SD prompts if present in XMP/EXIF)
+            const desc =
+                tags['XMP:parameters']?.description ||
+                tags['XMP:Description']?.description ||
+                tags['ImageDescription']?.description ||
+                tags['Image']?.description;
+            if (typeof desc === 'string' && desc.trim()) {
+                return desc;
+            }
+            // Otherwise show all tags (will be camera/etc for JPEGs)
+            if (Object.keys(tags).length > 0) {
+                return JSON.stringify(tags, null, 2);
+            }
+            return '<No metadata found in file>';
+        } catch (err) {
+            console.error('[getPromptMetadata] EXIF/XMP parse failed:', err);
+        }
+
+        return '<No metadata available>';
+
     } catch (err) {
-        console.error('[getPromptMetadata]', err);
-        return '';
+        console.error('[getPromptMetadata] UNHANDLED ERROR:', err);
+        return '<No metadata available>';
     }
 });
+
+
 
 
 // ---- NOTES & TAGS ----

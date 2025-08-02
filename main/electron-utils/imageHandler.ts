@@ -22,53 +22,51 @@ export async function saveModelImage(
     const imagesDir = path.join(app.getPath('userData'), 'images', modelHash);
     ensureDir(imagesDir);
 
-    // Prune to max 24 images
-    let imgFiles = fs
-        .readdirSync(imagesDir)
-        .filter(f => /\.(png|jpe?g)$/i.test(f));
-    if (imgFiles.length >= 25) {
-        const toDelete = imgFiles
-            .map(f => ({ file: f, time: fs.statSync(path.join(imagesDir, f)).ctimeMs }))
-            .sort((a, b) => a.time - b.time)
-            .slice(0, imgFiles.length - 24);
-        for (const { file } of toDelete) {
-            fs.unlinkSync(path.join(imagesDir, file));
-        }
-        imgFiles = fs.readdirSync(imagesDir).filter(f => /\.(png|jpe?g)$/i.test(f));
-    }
-
-    const safeIndex = typeof index === 'number' && !isNaN(index) ? index : Date.now();
+    // Detect file extension
     let ext = '.png';
-    if (fs.existsSync(source)) {
-        ext = path.extname(source) || ext;
-    } else {
-        try {
-            ext = path.extname(new URL(source).pathname) || ext;
-        } catch {
-            ext = '.png';
-        }
-    }
-    const baseName = `img_${safeIndex}`;
-    const imgName = `${baseName}${ext}`;
-    const imgPath = path.join(imagesDir, imgName);
+    let buffer: Buffer | null = null;
 
+    // 1. Download or copy file, detect actual image type and set ext
     if (fs.existsSync(source)) {
-        await fs.promises.copyFile(source, imgPath);
+        // Local file: detect PNG/JPEG via magic number
+        const header = Buffer.alloc(8);
+        const fd = fs.openSync(source, 'r');
+        fs.readSync(fd, header, 0, 8, 0);
+        fs.closeSync(fd);
+        if (header.slice(0, 2).toString('hex') === 'ffd8') {
+            ext = '.jpeg';
+        } else if (header.toString('hex', 0, 8) === '89504e470d0a1a0a') {
+            ext = '.png';
+        } else {
+            console.log('[saveModelImage] Skipping non-PNG/JPEG local file:', source);
+            return '';
+        }
+        await fs.promises.copyFile(source, path.join(imagesDir, `img_${index}${ext}`));
     } else {
+        // Remote URL: download and check content-type
         const res = await axios.get(source, { responseType: 'arraybuffer' });
-        await fs.promises.writeFile(imgPath, Buffer.from(res.data));
+        buffer = Buffer.from(res.data);
+        const contentType = res.headers['content-type'] || '';
+        if (contentType.includes('image/png')) {
+            ext = '.png';
+        } else if (contentType.includes('image/jpeg')) {
+            ext = '.jpeg';
+        } else {
+            console.log('[saveModelImage] Remote image is not PNG/JPEG (content-type):', contentType, source);
+            return '';
+        }
+        await fs.promises.writeFile(path.join(imagesDir, `img_${index}${ext}`), buffer);
     }
 
     if (metadata !== undefined) {
-        const metaPath = path.join(imagesDir, `${baseName}.json`);
+        const metaPath = path.join(imagesDir, `img_${index}.json`);
         await fs.promises.writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf-8');
     }
 
-    // Always return as a file:// URI for Electron/Browser compatibility
-    // Avoid double prefix
+    // Return as file:// URI (include extension)
+    const imgPath = path.join(imagesDir, `img_${index}${ext}`);
     return imgPath.startsWith('file://') ? imgPath : `file://${imgPath}`;
 }
-
 
 export async function deleteModelImage(modelHash: string, fileName: string): Promise<void> {
     const imagesDir = path.join(app.getPath('userData'), 'images', modelHash);

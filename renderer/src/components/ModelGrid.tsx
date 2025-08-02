@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { FaStar, FaRegStar } from 'react-icons/fa';
+import placeholderModel from '../assets/placeholder-model.png';
 
 export interface ModelInfo {
     model_hash: string;
@@ -34,13 +35,14 @@ const ModelGrid: React.FC<ModelGridProps> = ({ models, onSelectModel, onToggleFa
                         <img
                             src={
                                 model.cover_image
-                                    ? model.cover_image.startsWith('file://')
+                                    ? (model.cover_image.startsWith('file://')
                                         ? model.cover_image
-                                        : `file://${model.cover_image}`
-                                    : PLACEHOLDER
+                                        : `file://${model.cover_image}`)
+                                    : placeholderModel
                             }
                             alt={model.file_name}
                             className="absolute inset-0 w-full h-full object-cover rounded-md"
+                            onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = placeholderModel; }} // <--- ADD THIS
                         />
                         <button
                             onClick={e => {

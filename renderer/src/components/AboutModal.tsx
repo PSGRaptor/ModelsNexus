@@ -1,3 +1,4 @@
+// Need to add LastUpdate
 import React, { useState } from "react";
 import { Github, X } from "lucide-react";
 // Import version directly from root package.json

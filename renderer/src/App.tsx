@@ -111,9 +111,11 @@ const App: React.FC = () => {
 
     return (
         <ThemeProvider>
-            <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
+            <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
+                {/* Header stays at top, never scrolls */}
                 <Header logo={logo} onOpenConfig={handleOpenConfig} />
-                <div className="flex flex-1">
+                <div className="flex flex-1 overflow-hidden">
+                    {/* Sidebar stays fixed on left, never scrolls */}
                     <Sidebar
                         onOpenConfig={handleOpenConfig}
                         onSelectModel={handleSelectModel}
@@ -122,7 +124,8 @@ const App: React.FC = () => {
                         setSearch={setSearch}
                         onTypeFilter={setTypeFilter}
                     />
-                    <main className="flex-1 overflow-y-auto p-6 bg-zinc-50 dark:bg-slate-500 transition-colors duration-300">
+                    {/* Main content area: ONLY THIS SCROLLS */}
+                    <main className="flex-1 h-full overflow-y-auto p-6 bg-zinc-50 dark:bg-slate-500 transition-colors duration-300">
                         {loading
                             ? <Spinner />
                             : <ModelGrid
