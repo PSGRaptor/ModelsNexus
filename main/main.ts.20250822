@@ -29,11 +29,10 @@ import {
     addTag,
     removeTag,
     getAllModelsWithCover,
-    updateModel,
-    runIncrementalMigration,
+    updateModel
 } from '../db/db-utils.js';
 import { scanAndImportModels } from './electron-utils/modelScanner.js';
-
+// ← Added deleteModelImage here:
 import { saveModelImage, getModelImages, deleteModelImage } from './electron-utils/imageHandler.js';
 import { enrichModelFromAPI } from './electron-utils/metadataFetcher.js';
 import { getModelByHash } from '../db/db-utils.js';
@@ -41,8 +40,6 @@ import { buildCivitaiHashMap } from './utils/buildCivitaiHashMap.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { Tags } from 'exifreader';
-import { registerScanHandlers } from './ipc/scanHandlers.js';
-import { registerModelsPageHandlers } from './ipc/modelsPageHandlers.js';
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.join(app.getAppPath(), 'resources', 'sd-prompt-reader-cli.exe');
@@ -191,32 +188,19 @@ function createMainWindow() {
 
 // Electron app events
 app.on('ready', async () => {
+    // ── Step 2: Initialize the DB (create file  run migrations) ─────────
     // getPromptViewerWindow();
     startPromptReader();
-
     try {
-        const db = await initDb();                 // ⬅️ capture DB instance
-        await runIncrementalMigration(db);         // ⬅️ apply 002_incremental.sql
+        await initDb();
         console.log('✅ Database initialized');
-
-        // Preload scan roots once from DB (synchronous getter for handler)
-        const scanPathRows = await getAllScanPaths();
-        const scanRoots = (Array.isArray(scanPathRows) ? scanPathRows : []).map((r: any) => r.path);
-
-        // Register IPC (db is a sqlite wrapper; cast to any to satisfy handlers)
-        registerScanHandlers(
-            db as any,
-            () => scanRoots,
-            () => ['.safetensors', '.pt', '.ckpt', '.lora', '.gguf']
-        );
-        registerModelsPageHandlers(db as any);
-
     } catch (err) {
         console.error('❌ Database initialization failed:', err);
+        // If the DB can’t open or migrate, quit rather than continue in a broken state
         app.quit();
         return;
     }
-
+    // ── Now safe to spin up your window ───────────────────────────────────
     createMainWindow();
 });
 

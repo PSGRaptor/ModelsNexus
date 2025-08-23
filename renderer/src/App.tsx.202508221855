@@ -1,131 +1,80 @@
-// START OF FILE: renderer/src/App.tsx
+// renderer/src/App.tsx
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import Sidebar from './components/Sidebar';
-import ModelGrid, { ModelInfo } from './components/ModelGrid';
+import ModelGrid from './components/ModelGrid';
 import ModelDetailsModal from './components/ModelDetailsModal';
 import ConfigModal from './components/ConfigModal';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
 import ScanProgressModal from './components/ScanProgressModal';
 import './index.css';
-import logo from './assets/logo.png';
 
-const PAGE_SIZE = 200;
+import logo from './assets/logo.png';
 
 const App: React.FC = () => {
     const [showConfig, setShowConfig] = useState(false);
     const [selectedModel, setSelectedModel] = useState<string | null>(null);
-    const [models, setModels] = useState<ModelInfo[]>([]);
+    const [models, setModels] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState('');
     const [scanProgress, setScanProgress] = useState<{ current: number; total: number; file: string; status?: string } | null>(null);
     const [scanInProgress, setScanInProgress] = useState(false);
 
-    // -- Derived filter (unchanged) ------------------------------------------------
+    // Filter models for search and type
     const filteredModels = models.filter(m =>
-        (
-            !typeFilter ||
-            (m.model_type && m.model_type.toLowerCase() === typeFilter.toLowerCase()) ||
-            (m.file_name && m.file_name.toLowerCase().includes(typeFilter.toLowerCase()))
-        )
+        (!typeFilter || (m.model_type && m.model_type.toLowerCase() === typeFilter.toLowerCase()) ||
+            (m.file_name && m.file_name.toLowerCase().includes(typeFilter.toLowerCase())))
         &&
-        (
-            m.file_name?.toLowerCase().includes(search.toLowerCase()) ||
+        (m.file_name?.toLowerCase().includes(search.toLowerCase()) ||
             m.model_type?.toLowerCase().includes(search.toLowerCase()) ||
-            (m.base_model || '').toLowerCase().includes(search.toLowerCase())
-        )
+            m.base_model?.toLowerCase().includes(search.toLowerCase()))
     );
 
-    // -- Helper: map rows from either endpoint to ModelGrid's shape ---------------
-    function mapRowToModelInfo(m: any): ModelInfo {
-        // Try multiple fields for cover image to avoid regressions
-        const cover =
-            m.main_image_path /* your DB cover field */ ||
-            m.thumbnail_path  /* from models:list */   ||
-            m.cover_image     /* already shaped */     ||
-            null;
-
-        return {
-            model_hash: m.model_hash,
-            file_name:  m.file_name || m.name || '',
-            base_model: m.base_model,
-            model_type: m.model_type,
-            is_favorite: Number(m.is_favorite ?? 0),
-            cover_image: cover,
-        };
-    }
-
-    // -- NEW: Paged loader using models:list (with safe fallback) -----------------
-    const loadModelsPaged = useCallback(async () => {
+    const fetchModels = useCallback(async () => {
         setLoading(true);
-
-        // Prefer the new paged IPC if available
-        const hasIpc = !!(window as any)?.electron?.ipcRenderer;
-        if (hasIpc) {
-            try {
-                let offset = 0;
-
-                // First page: render ASAP (improves time-to-interaction)
-                const first: any[] = await (window as any).electron.ipcRenderer.invoke('models:list', { offset, limit: PAGE_SIZE });
-                setModels(first.map(mapRowToModelInfo));
-                offset += first.length;
-
-                // Progressive background hydration
-                // (Avoid a tight loop if nothing is returned)
-                while (true) {
-                    const next: any[] = await (window as any).electron.ipcRenderer.invoke('models:list', { offset, limit: PAGE_SIZE });
-                    if (!next || next.length === 0) break;
-                    setModels(prev => [...prev, ...next.map(mapRowToModelInfo)]);
-                    offset += next.length;
-                }
-
-                setLoading(false);
-                return; // done with paged path
-            } catch (err) {
-                console.warn('[App] models:list failed, falling back to getAllModelsWithCover()', err);
-                // fall through to legacy path
-            }
-        }
-
-        // Legacy fallback (keeps app working if new IPC isn’t wired yet)
-        if ((window as any).electronAPI?.getAllModelsWithCover) {
-            const raw = await (window as any).electronAPI.getAllModelsWithCover();
-            setModels(raw.map(mapRowToModelInfo));
+        if (window.electronAPI && window.electronAPI.getAllModelsWithCover) {
+            // Pull raw rows (which include `cover_image_url`)…
+            const raw = await window.electronAPI.getAllModelsWithCover();
+            // …then map to the ModelGrid interface by aliasing cover_image_url → cover_image
+            setModels(raw.map((m: any) => ({
+                model_hash: m.model_hash,
+                file_name: m.file_name,
+                base_model: m.base_model,
+                model_type: m.model_type,
+                is_favorite: m.is_favorite,
+                // ModelGrid uses `cover_image`, so copy over your DB field here:
+                cover_image: m.main_image_path || null
+            })));
         }
         setLoading(false);
     }, []);
 
-    // Initial load on mount
     useEffect(() => {
-        loadModelsPaged();
-    }, [loadModelsPaged]);
+        fetchModels();
+    }, [fetchModels]);
 
-    // -- Handlers for dialogs/modals ---------------------------------------------
+    // Model details modal
     const handleOpenConfig = () => setShowConfig(true);
     const handleCloseConfig = () => setShowConfig(false);
     const handleSelectModel = (modelHash: string) => setSelectedModel(modelHash);
     const handleCloseModelDetails = () => setSelectedModel(null);
 
-    // -- Update Scan (unchanged surface). After scan, reload paged ---------------
+    // Scan logic
     const handleUpdateScan = async () => {
         setScanInProgress(true);
         setScanProgress({ current: 0, total: 0, file: '' });
-
-        if ((window as any).electronAPI?.scanAndImportModels) {
-            await (window as any).electronAPI.scanAndImportModels();
+        if (window.electronAPI && window.electronAPI.scanAndImportModels) {
+            await window.electronAPI.scanAndImportModels();
         }
-
-        // Re-run paged load so UI refreshes without blocking
-        await loadModelsPaged();
-
+        await fetchModels();
         setScanInProgress(false);
         setScanProgress(null);
     };
 
-    // -- Scan progress listener (kept as-is) -------------------------------------
+    // Progress modal event handler
     useEffect(() => {
         const handler = (_event: any, data: any) => {
             setScanProgress({
@@ -139,29 +88,27 @@ const App: React.FC = () => {
                 setTimeout(() => setScanProgress(null), 1000);
             }
         };
-        (window as any).electronAPI?.onScanProgress?.(handler);
+        window.electronAPI.onScanProgress(handler);
         return () => {
-            (window as any).electronAPI?.removeScanProgress?.(handler);
+            window.electronAPI.removeScanProgress(handler);
         };
     }, []);
 
-    // -- Cancel scan from modal (kept) -------------------------------------------
+    // Cancel scan from modal
     const handleCancelScan = () => {
-        (window as any).electronAPI?.cancelScan?.();
+        if (window.electronAPI?.cancelScan) window.electronAPI.cancelScan();
         setScanInProgress(false);
         setScanProgress(null);
     };
 
-    // -- Favorite toggle (unchanged) ---------------------------------------------
+    // Favorite toggle handler
     const handleToggleFavorite = async (modelHash: string) => {
-        if ((window as any).electronAPI?.toggleFavoriteModel) {
-            await (window as any).electronAPI.toggleFavoriteModel(modelHash);
-            // Reload paged to reflect favorites correctly
-            loadModelsPaged();
+        if (window.electronAPI?.toggleFavoriteModel) {
+            await window.electronAPI.toggleFavoriteModel(modelHash);
+            fetchModels();
         }
     };
 
-    // -- Render -------------------------------------------------------------------
     return (
         <ThemeProvider>
             <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
@@ -189,16 +136,13 @@ const App: React.FC = () => {
                         }
                     </main>
                 </div>
-
                 {showConfig && <ConfigModal onClose={handleCloseConfig} />}
-
                 {selectedModel && (
                     <ModelDetailsModal
                         modelHash={selectedModel}
                         onClose={handleCloseModelDetails}
                     />
                 )}
-
                 {scanProgress && (
                     <ScanProgressModal
                         current={scanProgress.current}
@@ -214,5 +158,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
-// END OF FILE: renderer/src/App.tsx

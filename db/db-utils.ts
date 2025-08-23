@@ -5,6 +5,8 @@ import path from 'path';
 import fs from 'fs/promises';
 import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
+import fsSync from 'node:fs';
+import pathNode from 'node:path';
 
 // 1) Compute a user-writable path for your DB and ensure the folder exists
 const userDataPath = app.getPath('userData');                    // e.g. C:\Users\<You>\AppData\Roaming\Models Nexus
@@ -93,6 +95,17 @@ export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.State
     }
 
     return db;
+}
+
+export async function runIncrementalMigration(
+    db: Database<sqlite3.Database, sqlite3.Statement>
+) {
+    const file = pathNode.join(process.cwd(), 'db', 'migrations', '002_incremental.sql');
+    if (!fsSync.existsSync(file)) return;
+
+    const sql = fsSync.readFileSync(file, 'utf8');
+    // sqlite (kriasoft) Database#exec returns a Promise and does NOT accept a callback.
+    await db.exec(sql);
 }
 
 // ————————————————————————————————————————————————————————————————————————

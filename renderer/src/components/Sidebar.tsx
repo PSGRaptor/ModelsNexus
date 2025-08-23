@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SearchBar from './SearchBar';
+import { useShiftClick } from '../hooks/useShiftClick';
 
 type SidebarProps = {
     onOpenConfig: () => void;
@@ -24,6 +25,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                                              onTypeFilter
                                          }) => {
     const [selectedType, setSelectedType] = useState<string>('');
+    // Track Shift key for full rescan
+    const { onKeyDown, onKeyUp, isShiftPressed } = useShiftClick();
+
+    useEffect(() => {
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+        };
+    }, []);
 
     const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         setSelectedType(e.target.value);
@@ -79,7 +91,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                     transition
                     border border-blue-700
                 "
-                onClick={onUpdateScan}
+                title="Update Scan (Hold Shift and click for Full Rescan)"
+                onClick={() => {
+                    const mode = isShiftPressed() ? 'full' : 'incremental';
+                    // Call main via IPC; keep your prop for backward-compat if needed:
+                    if (window?.Electron?.ipcRenderer) {
+                        window.Electron.ipcRenderer.invoke('scan:start', { mode });
+                    } else {
+                        // Fallback to existing handler if ipc bridge isn’t available in some environments
+                        onUpdateScan?.();
+                    }
+                }}
             >
                 Update Scan
             </button>
