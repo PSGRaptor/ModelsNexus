@@ -8,43 +8,157 @@ import { open, Database } from 'sqlite';
 import fsSync from 'node:fs';
 import pathNode from 'node:path';
 
-// 1) Compute a user-writable path for your DB and ensure the folder exists
-const userDataPath = app.getPath('userData');              // e.g. C:\Users\<You>\AppData\Roaming\ModelsNexus
-const dbPath       = path.join(userDataPath, 'models.db');
+const userDataPath = app.getPath('userData');
+const dbPath = path.join(userDataPath, 'models.db');
 
-// 2) Export getDbPath() for legacy callers
 export function getDbPath(): string {
     return dbPath;
 }
 
-// 3) The Database instance
 export let db: Database<sqlite3.Database, sqlite3.Statement>;
 
 /* ----------------------------------------------------------------------------
- * Generic SQL migration runner (works in dev and packaged app)
+ * Robust SQL migration runner
+ *  - Supports "ALTER TABLE ... ADD COLUMN IF NOT EXISTS ..." on older SQLite
+ *  - Skips no-op/duplicate operations safely
  * ---------------------------------------------------------------------------- */
+
+function splitSqlStatements(rawSql: string): string[] {
+    // Normalize
+    let sql = rawSql.replace(/^\uFEFF/, ''); // strip BOM if present
+
+    // Remove block comments /* ... */
+    sql = sql.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    // Remove line comments at start of line: --, //, #, Unicode dashes
+    sql = sql
+        .split(/\r?\n/)
+        .map((line) => {
+            const trimmed = line.trimStart();
+
+            // Full-line comments
+            if (
+                trimmed.startsWith('--') ||
+                trimmed.startsWith('//') ||
+                trimmed.startsWith('#') ||
+                trimmed.startsWith('—') || // em dash
+                trimmed.startsWith('–')    // en dash
+            ) {
+                return '';
+            }
+
+            // Strip inline comments (only when not inside quotes).
+            // We’ll do a simple scan to ignore text inside '...' or "..."
+            let out = '';
+            let inSQ = false; // single quotes
+            let inDQ = false; // double quotes
+
+            for (let i = 0; i < line.length; i++) {
+                const ch = line[i];
+                const next = line[i + 1];
+
+                // toggle quotes
+                if (!inDQ && ch === '\'' ) inSQ = !inSQ;
+                else if (!inSQ && ch === '"' ) inDQ = !inDQ;
+
+                if (!inSQ && !inDQ) {
+                    // inline comment starters
+                    if (ch === '-' && next === '-') break;        // --
+                    if (ch === '/' && next === '/') break;        // //
+                    if (ch === '#') break;                         // #
+                    if ((ch === '—' || ch === '–')) break;         // em/en dash used as a "comment"
+                }
+
+                out += ch;
+            }
+            return out;
+        })
+        .join('\n');
+
+    // Now split on semicolons that terminate statements
+    return sql
+        .split(';')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+}
+
+async function columnExists(
+    dbInst: Database<sqlite3.Database, sqlite3.Statement>,
+    table: string,
+    column: string
+): Promise<boolean> {
+    const rows = await dbInst.all(`PRAGMA table_info(${table})`);
+    return (rows || []).some((r: any) => String(r.name).toLowerCase() === column.toLowerCase());
+}
+
+function isIgnorableError(err: any): boolean {
+    const msg = String(err?.message || err).toLowerCase();
+    return (
+        msg.includes('duplicate column name') ||
+        msg.includes('already exists') ||
+        msg.includes('index') && msg.includes('exists') ||
+        msg.includes('no such table') && msg.includes('if exists') // defensive
+    );
+}
+
+async function execStatementSmart(
+    dbInst: Database<sqlite3.Database, sqlite3.Statement>,
+    rawStmt: string
+) {
+    const stmt = rawStmt.trim();
+    if (!stmt) return;
+
+    // Handle: ALTER TABLE <table> ADD COLUMN IF NOT EXISTS <column> <type/def...>
+    const m = stmt.match(
+        /^alter\s+table\s+([A-Za-z_][\w]*)\s+add\s+column\s+if\s+not\s+exists\s+([A-Za-z_][\w]*)\s+(.+)$/i
+    );
+    if (m) {
+        const [, table, column, tail] = m;
+        if (await columnExists(dbInst, table, column)) {
+            // Column already present: skip
+            return;
+        }
+        // Execute as: ALTER TABLE <table> ADD COLUMN <column> <tail>
+        const fallback = `ALTER TABLE ${table} ADD COLUMN ${column} ${tail}`;
+        await dbInst.exec(fallback);
+        return;
+    }
+
+    // For everything else, try exec directly; ignore benign idempotent errors
+    try {
+        await dbInst.exec(stmt);
+    } catch (err) {
+        if (isIgnorableError(err)) {
+            // no-op
+            return;
+        }
+        throw err;
+    }
+}
+
 async function runSqlMigration(
     dbInst: Database<sqlite3.Database, sqlite3.Statement>,
     filename: string
 ): Promise<void> {
-    // Resolve from app.getAppPath() so it works in packaged apps too
     const migrationsDir = pathNode.join(app.getAppPath(), 'db', 'migrations');
     const file = pathNode.join(migrationsDir, filename);
 
-    if (!fsSync.existsSync(file)) return; // quietly skip if missing
+    if (!fsSync.existsSync(file)) return;
 
-    const sql = fsSync.readFileSync(file, 'utf8');
-    await dbInst.exec(sql);
+    const raw = fsSync.readFileSync(file, 'utf8');
+    const statements = splitSqlStatements(raw);
+
+    for (const s of statements) {
+        await execStatementSmart(dbInst, s);
+    }
 }
 
 /** Run all file-based migrations in order. Extend this list over time. */
 async function runAllMigrations(dbInst: Database<sqlite3.Database, sqlite3.Statement>): Promise<void> {
-    // Add new migration filenames here in strict order
     const files = [
         '002_incremental.sql',
         '003_perf.sql',
     ];
-
     for (const f of files) {
         try {
             await runSqlMigration(dbInst, f);
@@ -56,7 +170,7 @@ async function runAllMigrations(dbInst: Database<sqlite3.Database, sqlite3.State
 }
 
 /* ----------------------------------------------------------------------------
- * Public helpers (back-compat) that delegate to the generic runner
+ * Back-compat exports (if other modules call these directly)
  * ---------------------------------------------------------------------------- */
 export async function runIncrementalMigration(dbInst: Database<sqlite3.Database, sqlite3.Statement>) {
     await runSqlMigration(dbInst, '002_incremental.sql');
@@ -66,28 +180,26 @@ export async function runPerfMigration(dbInst: Database<sqlite3.Database, sqlite
 }
 
 /* ----------------------------------------------------------------------------
- * initDb: open, PRAGMAs, base schema, column checks, file migrations
+ * initDb: open, PRAGMAs, base schema, inline additive columns, then migrations
  * ---------------------------------------------------------------------------- */
 export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.Statement>> {
-    // A) Ensure the userData folder exists
     await fs.mkdir(path.dirname(dbPath), { recursive: true });
 
-    // B) Open (or create) the database
     db = await open({
         filename: dbPath,
         driver: sqlite3.Database,
     });
 
-    // ✅ Performance PRAGMAs right after opening
+    // Performance PRAGMAs
     await db.exec(`
     PRAGMA journal_mode = WAL;          -- concurrent readers, faster app startup
     PRAGMA synchronous = NORMAL;        -- good durability/speed trade-off
     PRAGMA temp_store = MEMORY;         -- keep temp btrees in RAM
-    PRAGMA cache_size = -20000;         -- ~20,000 pages in KB units (negative => KB)
+    PRAGMA cache_size = -20000;         -- ~20,000 pages in KB units (negative => KB); tune if RAM-limited
     PRAGMA mmap_size = 268435456;       -- 256MB memory-mapped IO if supported
   `);
 
-    // C) Apply base schema
+    // Base schema
     const schemaFile = path.join(app.getAppPath(), 'db', 'schema.sql');
     try {
         const schemaSql = await fs.readFile(schemaFile, 'utf-8');
@@ -97,54 +209,46 @@ export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.State
         throw err;
     }
 
-    // D) Inline migrations for additive columns (kept for back-compat)
+    // Inline additive columns (kept for back-compat and first-run installs)
     const tableInfo = async (table: string) => db.all(`PRAGMA table_info(${table})`);
 
     let columns = await tableInfo('models');
 
-    // 1) model_name
     if (!columns.some((c: any) => c.name.toLowerCase() === 'model_name')) {
         await db.exec(`ALTER TABLE models ADD COLUMN model_name TEXT`);
     }
 
-    // 2) prompt_positive
     columns = await tableInfo('models');
     if (!columns.some((c: any) => c.name.toLowerCase() === 'prompt_positive')) {
         await db.exec(`ALTER TABLE models ADD COLUMN prompt_positive TEXT`);
     }
 
-    // 3) prompt_negative
     columns = await tableInfo('models');
     if (!columns.some((c: any) => c.name.toLowerCase() === 'prompt_negative')) {
         await db.exec(`ALTER TABLE models ADD COLUMN prompt_negative TEXT`);
     }
 
-    // 4) main_image_path
     columns = await tableInfo('models');
     if (!columns.some((c: any) => c.name.toLowerCase() === 'main_image_path')) {
         await db.exec(`ALTER TABLE models ADD COLUMN main_image_path TEXT`);
     }
 
-    // 5) notes
     columns = await tableInfo('models');
     if (!columns.some((c: any) => c.name.toLowerCase() === 'notes')) {
         await db.exec(`ALTER TABLE models ADD COLUMN notes TEXT`);
     }
 
-    // 6) sort_order (used by getAllModelsWithCover)
     columns = await tableInfo('models');
     if (!columns.some((c: any) => c.name.toLowerCase() === 'sort_order')) {
         await db.exec(`ALTER TABLE models ADD COLUMN sort_order INTEGER DEFAULT 0`);
     }
 
-    // 7) sort_order on images (needed by getAllModelsWithCover)
     columns = await tableInfo('images');
     if (!columns.some((c: any) => c.name.toLowerCase() === 'sort_order')) {
-        // default to 0 so images without an explicit order all sort first
         await db.exec(`ALTER TABLE images ADD COLUMN sort_order INTEGER DEFAULT 0`);
     }
 
-    // E) Run file-based migrations (002, 003, ...)
+    // Run file-based migrations (will tolerate IF NOT EXISTS on older SQLite)
     await runAllMigrations(db);
 
     return db;
@@ -154,7 +258,6 @@ export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.State
  * Utility functions (unchanged behavior)
  * ---------------------------------------------------------------------------- */
 
-// Marks or unmarks a model as favorite
 export async function updateFavorite(model_hash: string, is_favorite: number): Promise<void> {
     await db.run(
         'UPDATE models SET is_favorite = ? WHERE model_hash = ?',
@@ -163,7 +266,6 @@ export async function updateFavorite(model_hash: string, is_favorite: number): P
     );
 }
 
-// Updates Civitai metadata for a model
 export async function updateCivitaiModelInfo(
     model_hash: string,
     civitai_id: string,
@@ -175,8 +277,8 @@ export async function updateCivitaiModelInfo(
 ): Promise<void> {
     await db.run(
         `UPDATE models
-         SET civitai_id = ?, civitai_version_id = ?, model_type = ?, base_model = ?, version = ?, source_url = ?
-         WHERE model_hash = ?`,
+       SET civitai_id = ?, civitai_version_id = ?, model_type = ?, base_model = ?, version = ?, source_url = ?
+     WHERE model_hash = ?`,
         civitai_id,
         civitai_version_id,
         model_type,
@@ -187,7 +289,6 @@ export async function updateCivitaiModelInfo(
     );
 }
 
-// Inserts a model record if it does not exist
 export async function addModel(model: {
     file_name: string;
     model_hash: string;
@@ -213,7 +314,6 @@ export async function addModel(model: {
     );
 }
 
-// Updates the main model record
 export async function updateModel(model: any): Promise<void> {
     const name = model.model_name ?? model.file_name ?? '';
     await db.run(
@@ -237,7 +337,6 @@ export async function updateModel(model: any): Promise<void> {
     );
 }
 
-// Sets the main (cover) image path for a model
 export async function updateModelMainImage(modelHash: string, imagePath: string): Promise<void> {
     await db.run(
         'UPDATE models SET main_image_path = ? WHERE model_hash = ?',
@@ -246,12 +345,10 @@ export async function updateModelMainImage(modelHash: string, imagePath: string)
     );
 }
 
-// Retrieves all models ordered by date_added
 export async function getAllModels(): Promise<any[]> {
     return db.all(`SELECT * FROM models ORDER BY date_added DESC`);
 }
 
-// Retrieves all models with a cover image (main_image_path or first image)
 export async function getAllModelsWithCover(): Promise<any[]> {
     const models = await db.all('SELECT * FROM models ORDER BY date_added DESC');
     for (const model of models) {
@@ -270,7 +367,6 @@ export async function getAllModelsWithCover(): Promise<any[]> {
     return models;
 }
 
-// Scan-paths management
 export async function getAllScanPaths(): Promise<any[]> {
     return db.all('SELECT * FROM scan_paths WHERE enabled = 1');
 }
@@ -294,7 +390,6 @@ export async function getModelByHash(model_hash: string): Promise<any> {
     return db.get('SELECT * FROM models WHERE model_hash = ?', model_hash);
 }
 
-// API-key storage
 export async function getApiKey(provider: string): Promise<string> {
     const row: any = await db.get('SELECT api_key FROM api_keys WHERE provider = ?', provider);
     return row ? row.api_key : '';
@@ -309,7 +404,6 @@ export async function setApiKey(provider: string, apiKey: string): Promise<void>
     );
 }
 
-// User notes
 export async function getUserNote(model_hash: string): Promise<string> {
     const row: any = await db.get('SELECT note FROM user_notes WHERE model_hash = ?', model_hash);
     return row ? row.note : '';
@@ -318,14 +412,13 @@ export async function getUserNote(model_hash: string): Promise<string> {
 export async function setUserNote(model_hash: string, note: string): Promise<void> {
     await db.run(
         `INSERT INTO user_notes (model_hash, note, created_at, updated_at)
-         VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-             ON CONFLICT(model_hash) DO UPDATE SET note=excluded.note, updated_at=CURRENT_TIMESTAMP`,
+       VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+     ON CONFLICT(model_hash) DO UPDATE SET note=excluded.note, updated_at=CURRENT_TIMESTAMP`,
         model_hash,
         note
     );
 }
 
-// Tags
 export async function getTags(model_hash: string): Promise<string[]> {
     return db.all('SELECT tag FROM tags WHERE model_hash = ?', model_hash);
 }
@@ -346,7 +439,6 @@ export async function removeTag(model_hash: string, tag: string): Promise<void> 
     );
 }
 
-// Civitai version utilities
 export async function setCivitaiVersionId(model_hash: string, version_id: number): Promise<void> {
     await db.run(
         'UPDATE models SET civitai_version_id = ? WHERE model_hash = ?',
@@ -363,7 +455,6 @@ export async function getCivitaiVersionId(model_hash: string): Promise<number | 
     return row && row.civitai_version_id ? row.civitai_version_id : null;
 }
 
-// Model images
 export async function saveModelImage(
     model_hash: string,
     imageUrl: string,
