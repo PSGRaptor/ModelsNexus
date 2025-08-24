@@ -1,3 +1,5 @@
+// START OF FILE: renderer/src/components/Sidebar.tsx
+
 import React, { useState, useEffect } from 'react';
 import SearchBar from './SearchBar';
 import { useShiftClick } from '../hooks/useShiftClick';
@@ -5,7 +7,7 @@ import { useShiftClick } from '../hooks/useShiftClick';
 type SidebarProps = {
     onOpenConfig: () => void;
     onSelectModel: (modelHash: string) => void;
-    onUpdateScan: () => void;
+    onUpdateScan: () => void;          // fallback if ipcRenderer isn't exposed
     search: string;
     setSearch: (v: string) => void;
     onTypeFilter: (type: string) => void;
@@ -25,7 +27,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                                              onTypeFilter
                                          }) => {
     const [selectedType, setSelectedType] = useState<string>('');
-    // Track Shift key for full rescan
+
+    // Track Shift key for Full Rescan
     const { onKeyDown, onKeyUp, isShiftPressed } = useShiftClick();
 
     useEffect(() => {
@@ -35,7 +38,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             window.removeEventListener('keydown', onKeyDown);
             window.removeEventListener('keyup', onKeyUp);
         };
-    }, []);
+    }, [onKeyDown, onKeyUp]);
 
     const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         setSelectedType(e.target.value);
@@ -44,12 +47,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     return (
         <aside className="
-            w-64 min-w-[220px] flex flex-col py-5 px-3
-            bg-zinc-100 dark:bg-zinc-900
-            border-r border-zinc-300 dark:border-zinc-700
-            shadow-sm
-            transition-colors duration-300
-        ">
+      w-64 min-w-[220px] flex flex-col py-5 px-3
+      bg-zinc-100 dark:bg-zinc-900
+      border-r border-zinc-300 dark:border-zinc-700
+      shadow-sm
+      transition-colors duration-300
+    ">
             <div className="mb-6">
                 <SearchBar
                     value={search}
@@ -67,13 +70,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                 value={selectedType}
                 onChange={handleTypeChange}
                 className="
-                    w-full p-2 mb-6 rounded-lg border
-                    border-zinc-300 dark:border-zinc-600
-                    bg-white dark:bg-zinc-800
-                    text-sm text-zinc-900 dark:text-zinc-100
-                    focus:outline-none focus:ring-2 focus:ring-blue-500
-                    transition
-                "
+          w-full p-2 mb-6 rounded-lg border
+          border-zinc-300 dark:border-zinc-600
+          bg-white dark:bg-zinc-800
+          text-sm text-zinc-900 dark:text-zinc-100
+          focus:outline-none focus:ring-2 focus:ring-blue-500
+          transition
+        "
             >
                 <option value="">All Types</option>
                 {modelTypes.map(type => (
@@ -94,11 +97,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 title="Update Scan (Hold Shift and click for Full Rescan)"
                 onClick={() => {
                     const mode = isShiftPressed() ? 'full' : 'incremental';
-                    // Call main via IPC; keep your prop for backward-compat if needed:
-                    if (window?.Electron?.ipcRenderer) {
-                        window.Electron.ipcRenderer.invoke('scan:start', { mode });
+                    if ((window as any)?.electron?.ipcRenderer) {
+                        (window as any).electron.ipcRenderer.invoke('scan:start', { mode });
                     } else {
-                        // Fallback to existing handler if ipc bridge isn’t available in some environments
                         onUpdateScan?.();
                     }
                 }}
@@ -108,15 +109,15 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             <button
                 className="
-                    p-2 rounded-lg mt-auto font-semibold border
-                    bg-zinc-200 dark:bg-zinc-800
-                    text-blue-700 dark:text-zinc-100
-                    border-blue-700 dark:border-zinc-600
-                    hover:bg-blue-100 dark:hover:bg-blue-900
-                    hover:text-blue-900 dark:hover:text-white
-                    focus:ring-2 focus:ring-blue-400
-                    transition
-                "
+          p-2 rounded-lg mt-auto font-semibold border
+          bg-zinc-200 dark:bg-zinc-800
+          text-blue-700 dark:text-zinc-100
+          border-blue-700 dark:border-zinc-600
+          hover:bg-blue-100 dark:hover:bg-blue-900
+          hover:text-blue-900 dark:hover:text-white
+          focus:ring-2 focus:ring-blue-400
+          transition
+        "
                 onClick={onOpenConfig}
             >
                 Settings
@@ -126,3 +127,5 @@ const Sidebar: React.FC<SidebarProps> = ({
 };
 
 export default Sidebar;
+
+// END OF FILE: renderer/src/components/Sidebar.tsx

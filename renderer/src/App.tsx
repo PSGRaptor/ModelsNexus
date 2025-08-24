@@ -24,28 +24,29 @@ const App: React.FC = () => {
     const [scanProgress, setScanProgress] = useState<{ current: number; total: number; file: string; status?: string } | null>(null);
     const [scanInProgress, setScanInProgress] = useState(false);
 
-    // -- Derived filter (unchanged) ------------------------------------------------
-    const filteredModels = models.filter(m =>
-        (
-            !typeFilter ||
-            (m.model_type && m.model_type.toLowerCase() === typeFilter.toLowerCase()) ||
-            (m.file_name && m.file_name.toLowerCase().includes(typeFilter.toLowerCase()))
+    // Derived filtering for the grid
+    const filteredModels = models
+        .filter(m =>
+            (
+                !typeFilter ||
+                (m.model_type && m.model_type.toLowerCase() === typeFilter.toLowerCase()) ||
+                (m.file_name && m.file_name.toLowerCase().includes(typeFilter.toLowerCase()))
+            )
+            &&
+            (
+                m.file_name?.toLowerCase().includes(search.toLowerCase()) ||
+                m.model_type?.toLowerCase().includes(search.toLowerCase()) ||
+                (m.base_model || '').toLowerCase().includes(search.toLowerCase())
+            )
         )
-        &&
-        (
-            m.file_name?.toLowerCase().includes(search.toLowerCase()) ||
-            m.model_type?.toLowerCase().includes(search.toLowerCase()) ||
-            (m.base_model || '').toLowerCase().includes(search.toLowerCase())
-        )
-    );
+        .sort((a, b) => a.file_name.localeCompare(b.file_name, undefined, { sensitivity: 'base' }));
 
-    // -- Helper: map rows from either endpoint to ModelGrid's shape ---------------
+    // Normalize model row into ModelInfo shape
     function mapRowToModelInfo(m: any): ModelInfo {
-        // Try multiple fields for cover image to avoid regressions
         const cover =
-            m.main_image_path /* your DB cover field */ ||
-            m.thumbnail_path  /* from models:list */   ||
-            m.cover_image     /* already shaped */     ||
+            m.main_image_path /* DB cover field */ ||
+            m.thumbnail_path  /* from models:list */ ||
+            m.cover_image     /* pre-shaped */ ||
             null;
 
         return {
@@ -58,23 +59,19 @@ const App: React.FC = () => {
         };
     }
 
-    // -- NEW: Paged loader using models:list (with safe fallback) -----------------
+    // Paged load (fast first paint, then background hydrate)
     const loadModelsPaged = useCallback(async () => {
         setLoading(true);
 
-        // Prefer the new paged IPC if available
         const hasIpc = !!(window as any)?.electron?.ipcRenderer;
         if (hasIpc) {
             try {
                 let offset = 0;
 
-                // First page: render ASAP (improves time-to-interaction)
                 const first: any[] = await (window as any).electron.ipcRenderer.invoke('models:list', { offset, limit: PAGE_SIZE });
                 setModels(first.map(mapRowToModelInfo));
                 offset += first.length;
 
-                // Progressive background hydration
-                // (Avoid a tight loop if nothing is returned)
                 while (true) {
                     const next: any[] = await (window as any).electron.ipcRenderer.invoke('models:list', { offset, limit: PAGE_SIZE });
                     if (!next || next.length === 0) break;
@@ -83,14 +80,13 @@ const App: React.FC = () => {
                 }
 
                 setLoading(false);
-                return; // done with paged path
+                return; // success
             } catch (err) {
-                console.warn('[App] models:list failed, falling back to getAllModelsWithCover()', err);
-                // fall through to legacy path
+                console.warn('[App] models:list failed, falling back:', err);
             }
         }
 
-        // Legacy fallback (keeps app working if new IPC isn’t wired yet)
+        // Legacy fallback if new IPC isn’t wired
         if ((window as any).electronAPI?.getAllModelsWithCover) {
             const raw = await (window as any).electronAPI.getAllModelsWithCover();
             setModels(raw.map(mapRowToModelInfo));
@@ -98,86 +94,111 @@ const App: React.FC = () => {
         setLoading(false);
     }, []);
 
-    // Initial load on mount
+    // Initial load — NO scan here (avoids 5‑minute startup delay)
     useEffect(() => {
         loadModelsPaged();
     }, [loadModelsPaged]);
 
-    // -- Handlers for dialogs/modals ---------------------------------------------
+    // Dialog/modals
     const handleOpenConfig = () => setShowConfig(true);
     const handleCloseConfig = () => setShowConfig(false);
     const handleSelectModel = (modelHash: string) => setSelectedModel(modelHash);
     const handleCloseModelDetails = () => setSelectedModel(null);
 
-    // -- Update Scan (unchanged surface). After scan, reload paged ---------------
+    // Update Scan fallback (only used if Sidebar can't reach ipcRenderer)
     const handleUpdateScan = async () => {
-        setScanInProgress(true);
-        setScanProgress({ current: 0, total: 0, file: '' });
+        try {
+            setScanInProgress(true);
+            setScanProgress({ current: 0, total: 0, file: '' });
 
-        if ((window as any).electronAPI?.scanAndImportModels) {
-            await (window as any).electronAPI.scanAndImportModels();
+            // Prefer new incremental scan
+            if ((window as any).electron?.ipcRenderer) {
+                await (window as any).electron.ipcRenderer.invoke('scan:start', { mode: 'incremental' });
+            } else if ((window as any).electronAPI?.scanAndImportModels) {
+                // Legacy full scan fallback (not ideal, but keeps old builds working)
+                await (window as any).electronAPI.scanAndImportModels();
+            }
+
+            // Refresh list after scan
+            await loadModelsPaged();
+        } finally {
+            setScanInProgress(false);
+            setScanProgress(null);
         }
-
-        // Re-run paged load so UI refreshes without blocking
-        await loadModelsPaged();
-
-        setScanInProgress(false);
-        setScanProgress(null);
     };
 
-    // -- Scan progress listener (kept as-is) -------------------------------------
+    // Scan progress listener — supports both new ('scan:progress') and legacy bridges
     useEffect(() => {
-        const handler = (_event: any, data: any) => {
-            setScanProgress({
-                current: data.current,
-                total: data.total,
-                file: data.file,
-                status: data.status,
-            });
-            setScanInProgress(!(data.done));
-            if (data.done) {
-                setTimeout(() => setScanProgress(null), 1000);
-            }
-        };
-        (window as any).electronAPI?.onScanProgress?.(handler);
-        return () => {
-            (window as any).electronAPI?.removeScanProgress?.(handler);
-        };
+        const ipc = (window as any)?.electron?.ipcRenderer;
+        let listener: any;
+
+        if (ipc?.on) {
+            listener = (_e: any, data: any) => {
+                setScanProgress({
+                    current: data.processed ?? data.current ?? 0,
+                    total: data.total ?? 0,
+                    file: data.currentPath ?? data.file ?? '',
+                    status: data.phase ?? data.status,
+                });
+                const done = data?.phase === 'done' || data?.done === true || (data?.processed >= data?.total && data?.total > 0);
+                setScanInProgress(!done);
+                if (done) setTimeout(() => setScanProgress(null), 800);
+            };
+            ipc.on('scan:progress', listener);
+
+            return () => {
+                try {
+                    ipc.removeListener?.('scan:progress', listener);
+                } catch {}
+            };
+        }
+
+        // Legacy event bridge
+        if ((window as any).electronAPI?.onScanProgress) {
+            const legacyHandler = (_event: any, data: any) => {
+                setScanProgress({
+                    current: data.current,
+                    total: data.total,
+                    file: data.file,
+                    status: data.status,
+                });
+                setScanInProgress(!(data.done));
+                if (data.done) setTimeout(() => setScanProgress(null), 800);
+            };
+            (window as any).electronAPI.onScanProgress(legacyHandler);
+            return () => (window as any).electronAPI?.removeScanProgress?.(legacyHandler);
+        }
     }, []);
 
-    // -- Cancel scan from modal (kept) -------------------------------------------
+    // Cancel scan from modal
     const handleCancelScan = () => {
+        (window as any).electron?.ipcRenderer?.invoke?.('scan:cancel');
         (window as any).electronAPI?.cancelScan?.();
         setScanInProgress(false);
         setScanProgress(null);
     };
 
-    // -- Favorite toggle (unchanged) ---------------------------------------------
+    // Favorite toggle
     const handleToggleFavorite = async (modelHash: string) => {
         if ((window as any).electronAPI?.toggleFavoriteModel) {
             await (window as any).electronAPI.toggleFavoriteModel(modelHash);
-            // Reload paged to reflect favorites correctly
             loadModelsPaged();
         }
     };
 
-    // -- Render -------------------------------------------------------------------
     return (
         <ThemeProvider>
             <div className="h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
-                {/* Header stays at top, never scrolls */}
                 <Header logo={logo} onOpenConfig={handleOpenConfig} />
                 <div className="flex flex-1 overflow-hidden">
-                    {/* Sidebar stays fixed on left, never scrolls */}
                     <Sidebar
                         onOpenConfig={handleOpenConfig}
                         onSelectModel={handleSelectModel}
-                        onUpdateScan={handleUpdateScan}
+                        onUpdateScan={handleUpdateScan}   // fallback only; primary call happens in Sidebar via ipcRenderer
                         search={search}
                         setSearch={setSearch}
                         onTypeFilter={setTypeFilter}
                     />
-                    {/* Main content area: ONLY THIS SCROLLS */}
                     <main className="flex-1 h-full overflow-y-auto p-6 bg-zinc-50 dark:bg-slate-500 transition-colors duration-300">
                         {loading
                             ? <Spinner />
