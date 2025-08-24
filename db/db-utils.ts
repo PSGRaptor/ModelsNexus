@@ -1,15 +1,15 @@
-// File: main/db-utils.ts
+// START OF FILE: main/db-utils.ts
 
 import { app } from 'electron';
-import path from 'path';
-import fs from 'fs/promises';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
 import fsSync from 'node:fs';
 import pathNode from 'node:path';
 
 // 1) Compute a user-writable path for your DB and ensure the folder exists
-const userDataPath = app.getPath('userData');                    // e.g. C:\Users\<You>\AppData\Roaming\Models Nexus
+const userDataPath = app.getPath('userData');              // e.g. C:\Users\<You>\AppData\Roaming\ModelsNexus
 const dbPath       = path.join(userDataPath, 'models.db');
 
 // 2) Export getDbPath() for legacy callers
@@ -20,13 +20,54 @@ export function getDbPath(): string {
 // 3) The Database instance
 export let db: Database<sqlite3.Database, sqlite3.Statement>;
 
-/**
- * Initializes the SQLite database:
- *  - Creates the userData directory if missing
- *  - Opens (or creates) the models.db file
- *  - Applies the base schema from schema.sql
- *  - Runs any necessary ALTER TABLE migrations
- */
+/* ----------------------------------------------------------------------------
+ * Generic SQL migration runner (works in dev and packaged app)
+ * ---------------------------------------------------------------------------- */
+async function runSqlMigration(
+    dbInst: Database<sqlite3.Database, sqlite3.Statement>,
+    filename: string
+): Promise<void> {
+    // Resolve from app.getAppPath() so it works in packaged apps too
+    const migrationsDir = pathNode.join(app.getAppPath(), 'db', 'migrations');
+    const file = pathNode.join(migrationsDir, filename);
+
+    if (!fsSync.existsSync(file)) return; // quietly skip if missing
+
+    const sql = fsSync.readFileSync(file, 'utf8');
+    await dbInst.exec(sql);
+}
+
+/** Run all file-based migrations in order. Extend this list over time. */
+async function runAllMigrations(dbInst: Database<sqlite3.Database, sqlite3.Statement>): Promise<void> {
+    // Add new migration filenames here in strict order
+    const files = [
+        '002_incremental.sql',
+        '003_perf.sql',
+    ];
+
+    for (const f of files) {
+        try {
+            await runSqlMigration(dbInst, f);
+        } catch (err) {
+            console.error(`[DB] Migration ${f} failed:`, err);
+            throw err;
+        }
+    }
+}
+
+/* ----------------------------------------------------------------------------
+ * Public helpers (back-compat) that delegate to the generic runner
+ * ---------------------------------------------------------------------------- */
+export async function runIncrementalMigration(dbInst: Database<sqlite3.Database, sqlite3.Statement>) {
+    await runSqlMigration(dbInst, '002_incremental.sql');
+}
+export async function runPerfMigration(dbInst: Database<sqlite3.Database, sqlite3.Statement>) {
+    await runSqlMigration(dbInst, '003_perf.sql');
+}
+
+/* ----------------------------------------------------------------------------
+ * initDb: open, PRAGMAs, base schema, column checks, file migrations
+ * ---------------------------------------------------------------------------- */
 export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.Statement>> {
     // A) Ensure the userData folder exists
     await fs.mkdir(path.dirname(dbPath), { recursive: true });
@@ -36,6 +77,15 @@ export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.State
         filename: dbPath,
         driver: sqlite3.Database,
     });
+
+    // ✅ Performance PRAGMAs right after opening
+    await db.exec(`
+    PRAGMA journal_mode = WAL;          -- concurrent readers, faster app startup
+    PRAGMA synchronous = NORMAL;        -- good durability/speed trade-off
+    PRAGMA temp_store = MEMORY;         -- keep temp btrees in RAM
+    PRAGMA cache_size = -20000;         -- ~20,000 pages in KB units (negative => KB)
+    PRAGMA mmap_size = 268435456;       -- 256MB memory-mapped IO if supported
+  `);
 
     // C) Apply base schema
     const schemaFile = path.join(app.getAppPath(), 'db', 'schema.sql');
@@ -47,7 +97,7 @@ export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.State
         throw err;
     }
 
-    // D) Run migrations: add missing columns if they don’t exist
+    // D) Inline migrations for additive columns (kept for back-compat)
     const tableInfo = async (table: string) => db.all(`PRAGMA table_info(${table})`);
 
     let columns = await tableInfo('models');
@@ -94,21 +144,15 @@ export async function initDb(): Promise<Database<sqlite3.Database, sqlite3.State
         await db.exec(`ALTER TABLE images ADD COLUMN sort_order INTEGER DEFAULT 0`);
     }
 
+    // E) Run file-based migrations (002, 003, ...)
+    await runAllMigrations(db);
+
     return db;
 }
 
-export async function runIncrementalMigration(
-    db: Database<sqlite3.Database, sqlite3.Statement>
-) {
-    const file = pathNode.join(process.cwd(), 'db', 'migrations', '002_incremental.sql');
-    if (!fsSync.existsSync(file)) return;
-
-    const sql = fsSync.readFileSync(file, 'utf8');
-    // sqlite (kriasoft) Database#exec returns a Promise and does NOT accept a callback.
-    await db.exec(sql);
-}
-
-// ————————————————————————————————————————————————————————————————————————
+/* ----------------------------------------------------------------------------
+ * Utility functions (unchanged behavior)
+ * ---------------------------------------------------------------------------- */
 
 // Marks or unmarks a model as favorite
 export async function updateFavorite(model_hash: string, is_favorite: number): Promise<void> {
@@ -274,8 +318,8 @@ export async function getUserNote(model_hash: string): Promise<string> {
 export async function setUserNote(model_hash: string, note: string): Promise<void> {
     await db.run(
         `INSERT INTO user_notes (model_hash, note, created_at, updated_at)
-     VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-     ON CONFLICT(model_hash) DO UPDATE SET note=excluded.note, updated_at=CURRENT_TIMESTAMP`,
+         VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT(model_hash) DO UPDATE SET note=excluded.note, updated_at=CURRENT_TIMESTAMP`,
         model_hash,
         note
     );
@@ -348,3 +392,5 @@ export async function getModelImages(model_hash: string): Promise<any[]> {
         model_hash
     );
 }
+
+// END OF FILE: main/db-utils.ts
