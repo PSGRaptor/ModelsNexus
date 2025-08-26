@@ -1,3 +1,5 @@
+// File: main/preload.ts
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -8,7 +10,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAppVersion: async () => ipcRenderer.invoke('get-app-version'),
 
     // Model Data/DB
-
     getAllModels: async () => ipcRenderer.invoke('getAllModels'),
     getAllModelsWithCover: async () => ipcRenderer.invoke('getAllModelsWithCover'),
     scanAndImportModels: async () => ipcRenderer.invoke('scanAndImportModels'),
@@ -43,18 +44,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.on('scan-progress', callback),
     removeScanProgress: (callback: (event: any, ...args: any[]) => void) => ipcRenderer.removeListener('scan-progress', callback),
     openFileDialog: (options: Electron.OpenDialogOptions) => ipcRenderer.invoke('dialog:openFileDialog', options),
+    // ✅ ADD THIS:
+    openPromptViewer: (imgPath :any) => ipcRenderer.invoke('open-prompt-viewer', imgPath),
 
     deleteModelImage: (hash: string, name: string) => ipcRenderer.invoke('deleteModelImage', hash, name),
     //openPromptViewer: (imgPath: string) => ipcRenderer.invoke('open-prompt-viewer', imgPath),
     getPromptMetadata: (imagePath: string) => ipcRenderer.invoke('getPromptMetadata', imagePath),
-
 });
 
 contextBridge.exposeInMainWorld('promptAPI', {
     onShowPrompt: (cb: (imagePath: string) => void) => {
-        ipcRenderer.on('showPrompt', (_event: any, imagePath: string) => cb(imagePath))
+        ipcRenderer.on('showPrompt', (_event: any, imagePath: string) => cb(imagePath));
     },
     getPromptMetadata: (localPath: string): Promise<string> => {
-        return ipcRenderer.invoke('getPromptMetadata', localPath)
-    }
+        return ipcRenderer.invoke('getPromptMetadata', localPath);
+    },
+});
+
+// ✅ NEW: Settings bridge for sd-prompt-reader toggle
+contextBridge.exposeInMainWorld('settingsAPI', {
+    getUseExternalPromptParser: () => ipcRenderer.invoke('getUseExternalPromptParser'),
+    setUseExternalPromptParser: (v: boolean) => ipcRenderer.invoke('setUseExternalPromptParser', v),
 });

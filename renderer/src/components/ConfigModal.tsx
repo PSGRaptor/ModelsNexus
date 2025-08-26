@@ -1,3 +1,5 @@
+// File: renderer/src/components/ConfigModal.tsx
+
 import React, { useEffect, useState } from 'react';
 import { useTheme, Theme } from '../context/ThemeContext';
 
@@ -13,12 +15,16 @@ const THEME_LABELS: Record<Theme, string> = {
 
 const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [scanPaths, setScanPaths] = useState<string[]>([]);
-    const [newPath, setNewPath] = useState('');
+    const [newPath, setNewPath] = useState(''); // (kept, used by the input field)
     const [civitaiKey, setCivitaiKey] = useState('');
     const [huggingfaceKey, setHuggingfaceKey] = useState('');
     const [savingKeys, setSavingKeys] = useState(false);
     const [updating, setUpdating] = useState(false);
     const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+
+    // NEW: external parser toggle state
+    const [useExternalParser, setUseExternalParser] = useState(false);
+    const [parserBusy, setParserBusy] = useState(false);
 
     // Theme control from context
     const { theme, setTheme } = useTheme();
@@ -32,10 +38,14 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                 setCivitaiKey(await window.electronAPI.getApiKey('civitai'));
                 setHuggingfaceKey(await window.electronAPI.getApiKey('huggingface'));
             }
+            if (window.settingsAPI) {
+                const flag = await window.settingsAPI.getUseExternalPromptParser();
+                setUseExternalParser(!!flag);
+            }
         })();
     }, []);
 
-    // Add a new scan path
+    // Add a new scan path (uses folder picker)
     const handleAddPath = async () => {
         const folder = await window.electronAPI.selectFolder();
         if (!folder) return;
@@ -75,6 +85,16 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
             setUpdateStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
         }
         setUpdating(false);
+    };
+
+    // Toggle the external parser flag
+    const toggleExternalParser = async () => {
+        if (!window.settingsAPI) return;
+        setParserBusy(true);
+        const next = !useExternalParser;
+        await window.settingsAPI.setUseExternalPromptParser(next);
+        setUseExternalParser(next);
+        setParserBusy(false);
     };
 
     // Theme selector for light/dark/auto
@@ -186,6 +206,32 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                     >
                         {savingKeys ? 'Saving...' : 'Save API Keys'}
                     </button>
+                </div>
+
+                {/* NEW: Prompt Metadata Parser Toggle */}
+                <div className="mb-6 pt-2 border-t border-zinc-200 dark:border-zinc-700">
+                    <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Prompt Metadata Parser</div>
+                    <div className="flex items-center justify-between py-1">
+                        <div className="text-xs opacity-80">
+                            Use <span className="font-medium">sd-prompt-viewer</span> external parser for metadata (CLI fallback).
+                            <br />
+                            Executables expected at <code>resources/sd-prompt-reader.exe</code> and <code>resources/sd-prompt-reader-cli.exe</code>.
+                        </div>
+                        <label className="inline-flex items-center cursor-pointer relative">
+                            <input
+                                type="checkbox"
+                                className="sr-only peer"
+                                checked={useExternalParser}
+                                onChange={toggleExternalParser}
+                                disabled={parserBusy}
+                            />
+                            <div className="w-11 h-6 bg-gray-200 dark:bg-zinc-700 rounded-full peer
+                                            peer-checked:after:translate-x-full peer-checked:after:border-white
+                                            after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+                                            after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all
+                                            peer-checked:bg-blue-600" />
+                        </label>
+                    </div>
                 </div>
 
                 {/* Re-enrich All Models Button */}

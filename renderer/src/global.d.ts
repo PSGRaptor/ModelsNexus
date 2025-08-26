@@ -4,14 +4,21 @@ import type { IImageMeta } from './types';
 import type { OpenDialogOptions } from 'electron';
 
 export interface PromptAPI {
-    onShowPrompt?: (cb: (img: string) => void) => void
-    getPromptMetadata?: (localPath: string) => Promise<string>
+    onShowPrompt?: (cb: (img: string) => void) => void;
+    getPromptMetadata?: (localPath: string) => Promise<string>;
+}
+
+// Returned by electronAPI.selectModelMainImage
+export interface SelectModelMainImageResult {
+    canceled: boolean;
+    filePaths?: string[];
 }
 
 declare global {
     interface Window {
         electronAPI: {
             // Model metadata
+            getPromptMetadata(imagePath: string): Promise<string>;
             getImageMetadata(path: string): Promise<IImageMeta>;
             getAppVersion(): Promise<string>;
 
@@ -19,10 +26,10 @@ declare global {
             getAllModels(): Promise<any[]>;
             getAllModelsWithCover(): Promise<any[]>;
             scanAndImportModels(): Promise<any[]>;
-            getAllScanPaths(): Promise<any[]>;
+            getAllScanPaths(): Promise<any[]>; // typically { path: string }[]
             addScanPath(path: string): Promise<any[]>;
             removeScanPath(path: string): Promise<void>;
-            selectFolder(): Promise<string>;
+            selectFolder(): Promise<string | null>;
 
             // API keys
             getApiKey(provider: string): Promise<string>;
@@ -35,8 +42,8 @@ declare global {
 
             // Model details
             getModelByHash(modelHash: string): Promise<any>;
-            enrichModelFromAPI(modelHash: string): Promise<void>;
-            reenrichAllModels(): Promise<any>;
+            enrichModelFromAPI(modelHash: string): Promise<any>;
+            reenrichAllModels(): Promise<{ success: boolean; error?: string }>;
             updateHashMap(): Promise<any>;
 
             // Notes & tags
@@ -59,10 +66,17 @@ declare global {
             openFileDialog(options: OpenDialogOptions): Promise<string[]>;
             selectModelMainImage(modelHash: string): Promise<SelectModelMainImageResult>;
 
-            readPrompt(imagePath: string): Promise<PromptResult>;
-            openPromptViewer(imagePath: string): Promise<boolean>;
+            // Prompt viewer / metadata
+            openPromptViewer(imagePath: string): Promise<void>;
         };
-        promptAPI?: PromptAPI
+
+        // IPC bridges exposed via preload
+        promptAPI: PromptAPI;
+
+        settingsAPI: {
+            getUseExternalPromptParser(): Promise<boolean>;
+            setUseExternalPromptParser(v: boolean): Promise<boolean>;
+        };
     }
 }
 

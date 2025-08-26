@@ -1,4 +1,5 @@
 // root/renderer/src/main.tsx
+/// <reference path="./global.d.ts" />
 
 import './index.css';
 import React from 'react';

@@ -15,8 +15,11 @@
   },
   "include": [
     "main",
+    "main/**/*",
     "renderer/src",
+    "renderer/src/**/*",
     "renderer/src/components",
+    "renderer/src/types/",
     "db",
     "api",
     "src",

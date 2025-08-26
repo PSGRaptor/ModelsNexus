@@ -11,6 +11,9 @@ import * as path from 'path';
 const { dirname } = path;
 import { spawn, ChildProcess, execFile } from 'child_process';
 import { promisify } from 'util';
+import { readSdMetadata } from './metadata/sdMetadata.js';
+import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings';
+
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)
 
 import {
@@ -55,6 +58,53 @@ let promptViewerWindow: BrowserWindow | null = null;
 let promptReaderProcess: ChildProcess | null = null;
 let promptProcess: ChildProcess | null = null;
 let lastImagePath: string | null = null;
+
+// Format SDMeta to the string PromptViewer expects
+function formatMetaString(meta: any): string {
+    if (!meta) return '<No metadata available>';
+    const lines: string[] = [];
+    if (meta.tool) lines.push(`Tool: ${meta.tool}`);
+    if (meta.positive) {
+        const p = Array.isArray(meta.positive) ? meta.positive.join('\n') : meta.positive;
+        lines.push('\nPositive:\n' + p);
+    }
+    if (meta.negative) {
+        const n = Array.isArray(meta.negative) ? meta.negative.join('\n') : meta.negative;
+        lines.push('\nNegative:\n' + n);
+    }
+    if (meta.settings && Object.keys(meta.settings).length) {
+        lines.push('\nSettings:');
+        for (const [k, v] of Object.entries(meta.settings)) {
+            lines.push(`- ${k}: ${String(v)}`);
+        }
+    }
+    if (lines.length === 0) lines.push('<No metadata available>');
+    return lines.join('\n');
+}
+
+// Call bundled CLI in /resources when toggle is ON
+function callSdPromptReaderCLI(imgPath: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+        // Use the CLI exe already bundled in root/resources
+        const exe = path.join(process.cwd(), 'resources', 'sd-prompt-reader-cli.exe');
+
+        const args = ['-r', '-i', imgPath, '-f', 'JSON'];
+        const p = spawn(exe, args, { windowsHide: true });
+
+        let out = '';
+        let err = '';
+        p.stdout.on('data', (d) => (out += d.toString()));
+        p.stderr.on('data', (d) => (err += d.toString()));
+        p.on('close', (code) => {
+            if (code === 0 && out.trim()) {
+                try { resolve(JSON.parse(out)); }
+                catch { resolve({ raw: out }); }
+            } else {
+                reject(new Error(err || `sd-prompt-reader-cli exit ${code}`));
+            }
+        });
+    });
+}
 
 function getPromptReaderExePath(): string {
     const base = app.isPackaged
@@ -483,66 +533,44 @@ ipcMain.handle('selectFolder', async () => {
     return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle('getPromptMetadata', async (_e, imagePath) => {
+// File: main/main.ts  — REPLACE the entire existing getPromptMetadata handler with this
+ipcMain.handle('getPromptMetadata', async (_e, imagePath: string) => {
     try {
-        console.log('[getPromptMetadata] Called with:', imagePath);
-        let normalizedPath = imagePath.replace(/^file:\/\//, '');
-        if (process.platform === 'win32' && normalizedPath.startsWith('/')) {
-            normalizedPath = normalizedPath.slice(1);
-        }
-        console.log('[getPromptMetadata] Normalized path:', normalizedPath);
+        const normalized = path.normalize(imagePath);
 
-        if (!require('fs').existsSync(normalizedPath)) {
-            console.error('[getPromptMetadata] File does not exist:', normalizedPath);
-            return '<File does not exist>';
-        }
-
-        const buffer = await fs.promises.readFile(normalizedPath);
-        const ext = normalizedPath.split('.').pop()?.toLowerCase() || '';
-
-        if (ext === 'png') {
+        if (getUseExternalPromptParser()) {
             try {
-                const { PNG } = require('pngjs');
-                const png = PNG.sync.read(buffer);
-                if (png.text) {
-                    console.log('[getPromptMetadata] PNG tEXt keys:', Object.keys(png.text));
-                    if (png.text.parameters) return png.text.parameters;
-                    if (png.text.Description) return png.text.Description;
-                    for (const [k, v] of Object.entries(png.text)) {
-                        if (typeof v === 'string' && v.toLowerCase().includes('steps') && v.length > 40) return v;
-                    }
-                    return JSON.stringify(png.text, null, 2);
-                } else {
-                    console.warn('[getPromptMetadata] PNG has no tEXt chunk');
-                }
-            } catch (err) {
-                console.error('[getPromptMetadata] PNG tEXt parse failed:', err);
+                const j = await callSdPromptReaderCLI(normalized);
+                // Normalize a few common fields from CLI JSON to our format
+                const tool = j?.tool || j?.source || (j?.data?.tool) || 'Unknown';
+                const positive = j?.positive || j?.prompt || j?.data?.prompt;
+                const negative = j?.negative || j?.data?.negative_prompt;
+                const settings = j?.settings || j?.params || {};
+                const formatted = formatMetaString({ tool, positive, negative, settings });
+                return formatted || '<No metadata available>';
+            } catch {
+                // fall through to internal reader if CLI fails
             }
         }
 
-        try {
-            const ExifReader = require('exifreader');
-            const tags = ExifReader.load(buffer, { expanded: true, includeUnknown: true });
-            const desc =
-                tags['XMP:parameters']?.description ||
-                tags['XMP:Description']?.description ||
-                tags['ImageDescription']?.description ||
-                tags['Image']?.description;
-            if (typeof desc === 'string' && desc.trim()) {
-                return desc;
-            }
-            if (Object.keys(tags).length > 0) {
-                return JSON.stringify(tags, null, 2);
-            }
-            return '<No metadata found in file>';
-        } catch (err) {
-            console.error('[getPromptMetadata] EXIF/XMP parse failed:', err);
-        }
+        const meta = await readSdMetadata(normalized);
+        return formatMetaString(meta);
+    } catch (err: any) {
+        console.error('[getPromptMetadata] error:', err);
+        return '<Error reading metadata>';
+    }
+});
 
-        return '<No metadata available>';
+ipcMain.handle('open-prompt-viewer', async (event, imagePath: string) => {
+    try {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (win) {
+            win.webContents.send('showPrompt', imagePath);
+        }
+        return;
     } catch (err) {
-        console.error('[getPromptMetadata] UNHANDLED ERROR:', err);
-        return '<No metadata available>';
+        console.error('[open-prompt-viewer] error:', err);
+        return;
     }
 });
 
@@ -552,3 +580,5 @@ ipcMain.handle('setUserNote', (_e, hash: string, note: string) => setUserNote(ha
 ipcMain.handle('getTags', (_e, hash: string) => getTags(hash));
 ipcMain.handle('addTag', (_e, hash: string, tag: string) => addTag(hash, tag));
 ipcMain.handle('removeTag', (_e, hash: string, tag: string) => removeTag(hash, tag));
+ipcMain.handle('getUseExternalPromptParser', async () => getUseExternalPromptParser());
+ipcMain.handle('setUseExternalPromptParser', async (_e, v: boolean) => setUseExternalPromptParser(!!v));
