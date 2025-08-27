@@ -207,8 +207,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         {savingKeys ? 'Saving...' : 'Save API Keys'}
                     </button>
                 </div>
-
-                {/* NEW: Prompt Metadata Parser Toggle */}
+{/*                 NEW: Prompt Metadata Parser Toggle
                 <div className="mb-6 pt-2 border-t border-zinc-200 dark:border-zinc-700">
                     <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Prompt Metadata Parser</div>
                     <div className="flex items-center justify-between py-1">
@@ -233,7 +232,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         </label>
                     </div>
                 </div>
-
+*/}
                 {/* Re-enrich All Models Button */}
                 <div className="mb-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">
                     <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Maintenance</div>

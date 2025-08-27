@@ -12,7 +12,8 @@ const { dirname } = path;
 import { spawn, ChildProcess, execFile } from 'child_process';
 import { promisify } from 'util';
 import { readSdMetadata } from './metadata/sdMetadata.js';
-import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings';
+import { parseA1111Parameters } from './metadata/sdMetadata.js';
+import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)
 
@@ -82,26 +83,61 @@ function formatMetaString(meta: any): string {
     return lines.join('\n');
 }
 
+// Convert file:// URL -> local FS path; also trim quotes/spaces
+function toLocalFsPath(input: string): string {
+    if (!input) return input;
+    const s = input.trim().replace(/^"(.*)"$/, '$1'); // strip surrounding quotes
+    if (s.startsWith('file://')) {
+        try { return fileURLToPath(s); } catch { /* fallthrough */ }
+        // naive fallback for odd Windows URIs like file://C:/...
+        return s.replace(/^file:\/+/, '');
+    }
+    return s;
+}
+
 // Call bundled CLI in /resources when toggle is ON
-function callSdPromptReaderCLI(imgPath: string): Promise<any> {
+function callSdPromptReaderCLI(imgPath: string): Promise<{ json?: any, text?: string }> {
     return new Promise((resolve, reject) => {
-        // Use the CLI exe already bundled in root/resources
         const exe = path.join(process.cwd(), 'resources', 'sd-prompt-reader-cli.exe');
 
-        const args = ['-r', '-i', imgPath, '-f', 'JSON'];
-        const p = spawn(exe, args, { windowsHide: true });
+        if (!fs.existsSync(exe)) {
+            const msg = `[sd-cli] exe not found at ${exe}`;
+            console.error(msg);
+            return reject(new Error(msg));
+        }
 
-        let out = '';
-        let err = '';
-        p.stdout.on('data', (d) => (out += d.toString()));
-        p.stderr.on('data', (d) => (err += d.toString()));
-        p.on('close', (code) => {
-            if (code === 0 && out.trim()) {
-                try { resolve(JSON.parse(out)); }
-                catch { resolve({ raw: out }); }
-            } else {
-                reject(new Error(err || `sd-prompt-reader-cli exit ${code}`));
-            }
+        const tryOnce = (args: string[], label: string, next?: () => void) => {
+            console.log('[sd-cli] spawn:', exe, args.join(' '));
+            const p = spawn(exe, args, { windowsHide: true });
+
+            let out = '';
+            let err = '';
+            p.stdout.on('data', d => (out += d.toString()));
+            p.stderr.on('data', d => (err += d.toString()));
+            p.on('close', code => {
+                console.log(`[sd-cli] ${label} exit code:`, code, 'out.len=', out.length, 'err.len=', err.length);
+                if (out.trim()) {
+                    try {
+                        const j = JSON.parse(out);
+                        return resolve({ json: j });
+                    } catch {
+                        return resolve({ text: out });
+                    }
+                }
+                if (next) return next(); // try fallback
+                return reject(new Error(err || `sd-prompt-reader-cli exit ${code}`));
+            });
+            p.on('error', e => {
+                console.error('[sd-cli] spawn error:', e);
+                if (next) return next();
+                reject(e);
+            });
+        };
+
+        // 1) Try JSON mode
+        tryOnce(['-r', '-i', imgPath, '-f', 'JSON'], 'json', () => {
+            // 2) Fallback to plain text (no -f)
+            tryOnce(['-r', '-i', imgPath], 'text');
         });
     });
 }
@@ -501,9 +537,12 @@ ipcMain.handle('open-prompt-viewer', (_evt, imagePath: string) => {
         return false;
     }
 
-    let realImage = imagePath;
-    if (app.isPackaged && imagePath.includes(`app.asar${path.sep}`)) {
-        realImage = imagePath.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+    // 🔧 Normalize file://… to a real filesystem path
+    const fsImagePath = toLocalFsPath(String(imagePath));
+
+    let realImage = fsImagePath;
+    if (app.isPackaged && fsImagePath.includes(`app.asar${path.sep}`)) {
+        realImage = fsImagePath.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
     }
 
     console.log('Launching Prompt Reader GUI:', exePath, realImage);
@@ -528,49 +567,52 @@ ipcMain.handle('open-prompt-viewer', (_evt, imagePath: string) => {
     return true;
 });
 
+
 ipcMain.handle('selectFolder', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
     return result.canceled ? null : result.filePaths[0];
 });
 
-// File: main/main.ts  — REPLACE the entire existing getPromptMetadata handler with this
 ipcMain.handle('getPromptMetadata', async (_e, imagePath: string) => {
     try {
-        const normalized = path.normalize(imagePath);
+        console.log('[getPromptMetadata] toggle=', getUseExternalPromptParser());
+        const localPath = toLocalFsPath(imagePath);
+        const normalized = path.normalize(localPath);
+        // const normalized = path.normalize(imagePath);
+        console.log('[getPromptMetadata] input:', imagePath);
+        console.log('[getPromptMetadata] normalized:', normalized);
 
         if (getUseExternalPromptParser()) {
             try {
-                const j = await callSdPromptReaderCLI(normalized);
-                // Normalize a few common fields from CLI JSON to our format
-                const tool = j?.tool || j?.source || (j?.data?.tool) || 'Unknown';
-                const positive = j?.positive || j?.prompt || j?.data?.prompt;
-                const negative = j?.negative || j?.data?.negative_prompt;
-                const settings = j?.settings || j?.params || {};
-                const formatted = formatMetaString({ tool, positive, negative, settings });
-                return formatted || '<No metadata available>';
-            } catch {
-                // fall through to internal reader if CLI fails
+                const { json, text } = await callSdPromptReaderCLI(normalized);
+
+                if (json) {
+                    const tool = json?.tool || json?.source || (json?.data?.tool) || 'Unknown';
+                    const positive = json?.positive || json?.prompt || json?.data?.prompt;
+                    const negative = json?.negative || json?.data?.negative_prompt;
+                    const settings = json?.settings || json?.params || {};
+                    const formatted = formatMetaString({ tool, positive, negative, settings });
+                    if (formatted && formatted !== '<No metadata available>') return formatted;
+                }
+
+                if (text && /Negative prompt:|Steps:\s*\d+|Sampler:/i.test(text)) {
+                    const { positive, negative, settings } = parseA1111Parameters(text);
+                    const formatted = formatMetaString({ tool: 'A1111', positive, negative, settings });
+                    if (formatted && formatted !== '<No metadata available>') return formatted;
+                }
+
+                console.warn('[getPromptMetadata] CLI produced no usable stdout; falling back to internal reader.');
+            } catch (e) {
+                console.error('[getPromptMetadata] CLI error, falling back:', e);
             }
         }
 
         const meta = await readSdMetadata(normalized);
+        console.log('[getPromptMetadata] internal reader meta keys=', meta && Object.keys(meta || {}));
         return formatMetaString(meta);
     } catch (err: any) {
         console.error('[getPromptMetadata] error:', err);
         return '<Error reading metadata>';
-    }
-});
-
-ipcMain.handle('open-prompt-viewer', async (event, imagePath: string) => {
-    try {
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (win) {
-            win.webContents.send('showPrompt', imagePath);
-        }
-        return;
-    } catch (err) {
-        console.error('[open-prompt-viewer] error:', err);
-        return;
     }
 });
 
