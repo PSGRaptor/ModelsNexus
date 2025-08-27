@@ -168,6 +168,100 @@ function decodeTextBuffer(buf: Buffer): string {
     }
 }
 
+// Given a big blob, slice just the A1111 block around the markers.
+function sliceAroundA1111(s: string): string {
+    const A1111_RE = /(Negative\s*prompt\s*:)|(Steps\s*:\s*\d+)|(Sampler\s*:\s*[A-Za-z0-9+ .-]+)/i;
+    const i = s.search(A1111_RE);
+    if (i < 0) return s;
+    // look a bit before the match for the likely start of the Positive prompt
+    const start = Math.max(0, s.lastIndexOf('\n', i - 1200));
+    // try to end after the common “Size:”/“Seed:”/end-of-line cluster
+    let end = Math.min(s.length, i + 1600);
+    const sizeIdx = s.indexOf('Size:', i);
+    const seedIdx = s.indexOf('Seed:', i);
+    const tailIdx = [sizeIdx, seedIdx].filter(x => x >= 0).sort((a,b)=>a-b)[0];
+    if (tailIdx >= 0) {
+        const lineEnd = s.indexOf('\n', tailIdx);
+        if (lineEnd > 0) end = Math.min(end, lineEnd + 1);
+    }
+    return s.slice(start, end);
+}
+
+// Heuristic: if the string starts with a long run of non-ASCII,
+// chop it off at the first likely prompt character.
+function stripLeadingGibberish(s: string): string {
+    // keep common prompt starters too: < (for lora), " (quoted), ( for weighting
+    const idx = s.search(/[A-Za-z0-9<("'\[]/);
+    if (idx <= 0) return s;
+    const head = s.slice(0, idx);
+    const nonAscii = (head.match(/[^\x20-\x7E\s]/g) || []).length;
+    // if the head is short or mostly ASCII, leave it
+    if (head.length < 20) return s;
+    if (nonAscii / head.length < 0.5) return s;
+    return s.slice(idx);
+}
+
+// Keep printable characters, remove control chars, collapse whitespace.
+function cleanText(s?: string): string | undefined {
+    if (!s) return s;
+    // strip control chars except \t \n \r
+    let t = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    // drop stray NULs that sometimes remain after utf16 decode
+    t = t.replace(/\u0000/g, '');
+    // collapse whitespace
+    t = t.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n');
+    // trim obviously bad leading noise
+    t = stripLeadingGibberish(t);
+    // if >30% non-ASCII and it’s very long, trim
+    const nonAscii = (t.match(/[^\x20-\x7E\s]/g) || []).length;
+    if (t.length > 4000 && nonAscii / t.length > 0.3) {
+        t = t.slice(0, 4000);
+    }
+    return t.trim();
+}
+
+// Remove junky settings and normalize values.
+function cleanSettings(settings?: SDSettings): SDSettings | undefined {
+    if (!settings) return settings;
+    const out: SDSettings = {};
+    const dropKeys = new Set([
+        'Hashes', // often huge/empty JSON blobs
+        'TI hashes',
+        'Downcast alphas_cumprod',
+        'Discard penultimate sigma',
+        'Version',
+    ]);
+    for (const [k, v] of Object.entries(settings)) {
+        const key = String(k).trim();
+        if (!key || dropKeys.has(key)) continue;
+
+        const sv0 = typeof v === 'string' ? v : (v as any)?.toString?.() ?? '';
+        let sv = sv0;
+        // drop empty JSON-ish structures like {"model": ""} or {}
+        if (/^\s*\{[\s,"':0-9]*\}\s*$/.test(sv)) continue;
+
+        sv = cleanText(sv) || '';
+        // Heuristic: drop very long or highly non-ASCII values
+        const nonAscii = (sv.match(/[^\x20-\x7E\s]/g) || []).length;
+        if (sv.length > 300 || (sv.length > 40 && nonAscii / sv.length > 0.4)) continue;
+
+        // Normalize common numeric-ish fields
+        if (['Steps','CFG scale','Seed','Clip skip'].includes(key)) {
+            // keep as string but trim
+            sv = sv.replace(/[^\w.+-]/g, '').slice(0, 32);
+        }
+        if (key === 'Size') {
+            const m = sv.match(/(\d+)\s*[xX]\s*(\d+)/);
+            if (m) sv = `${m[1]}x${m[2]}`; else continue;
+        }
+
+        out[key] = sv;
+    }
+    // Drop empty object
+    return Object.keys(out).length ? out : undefined;
+}
+
+
 // Normalize EXIF/XP* string-ish values (exifreader can return arrays/typed arrays)
 function normalizeExifString(v: any): string {
     if (v == null) return '';
@@ -242,7 +336,11 @@ export function parseA1111Parameters(params: string): { positive?: string; negat
         }
     }
 
-    return { positive: positive.trim(), negative: negative.trim(), settings };
+    positive = cleanText(positive) || '';
+    negative = cleanText(negative) || '';
+    const cleaned = cleanSettings(settings);
+
+    return { positive: positive.trim(), negative: negative.trim(), settings: cleaned };
 }
 
 /* -------------- JPEG/WEBP EXIF/XMP -------------- */
@@ -317,7 +415,13 @@ export async function readSdMetadata(filePath: string): Promise<SDMeta | null> {
         if (params) {
             const { positive, negative, settings } = parseA1111Parameters(params);
             const novelAI = (txt['Comment']?.[0] || '').includes('NovelAI');
-            return { tool: novelAI ? 'NovelAI' : 'A1111', positive, negative, settings, raw: { parameters: params, txt } };
+            return {
+                tool: novelAI ? 'NovelAI' : 'A1111',
+                positive: cleanText(positive),
+                negative: cleanText(negative),
+                settings: cleanSettings(settings),
+                raw: { parameters: params, txt }
+            };
         }
 
         // Generic JSON in custom keys
@@ -388,10 +492,10 @@ export async function readSdMetadata(filePath: string): Promise<SDMeta | null> {
             const tool: SDMeta['tool'] = sw.includes('Invoke') ? 'InvokeAI' : 'A1111';
             return {
                 tool,
-                positive,
-                negative,
-                settings,
-                raw: { exif, jpegComments: comComments, matched: c.slice(0, 200) }
+                positive: cleanText(positive),
+                negative: cleanText(negative),
+                settings: cleanSettings(settings),
+                raw: { exif, jpegComments: comComments, matched: (c || '').slice(0, 200) }
             };
         }
     }
@@ -404,26 +508,47 @@ export async function readSdMetadata(filePath: string): Promise<SDMeta | null> {
         // UTF-8 / Latin-1
         const asUtf8 = buf.toString('utf8');
         if (A1111_RE.test(asUtf8)) {
-            const { positive, negative, settings } = parseA1111Parameters(asUtf8);
+            const windowed = sliceAroundA1111(asUtf8);
+            const { positive, negative, settings } = parseA1111Parameters(windowed);
             const sw = normalizeExifString(exif['Software']);
             const tool: SDMeta['tool'] = sw.includes('Invoke') ? 'InvokeAI' : 'A1111';
-            return { tool, positive, negative, settings, raw: { exif, sweep: 'utf8' } };
+            return {
+                tool,
+                positive: cleanText(positive),
+                negative: cleanText(negative),
+                settings: cleanSettings(settings),
+                raw: { exif, sweep: 'utf8' }
+            };
         }
         const asLatin1 = buf.toString('latin1');
         if (A1111_RE.test(asLatin1)) {
-            const { positive, negative, settings } = parseA1111Parameters(asLatin1);
+            const windowed = sliceAroundA1111(asLatin1);
+            const { positive, negative, settings } = parseA1111Parameters(windowed);
             const sw = normalizeExifString(exif['Software']);
             const tool: SDMeta['tool'] = sw.includes('Invoke') ? 'InvokeAI' : 'A1111';
-            return { tool, positive, negative, settings, raw: { exif, sweep: 'latin1' } };
+            return {
+                tool,
+                positive: cleanText(positive),
+                negative: cleanText(negative),
+                settings: cleanSettings(settings),
+                raw: { exif, sweep: 'latin1' }
+            };
         }
 
         // UTF-16LE
         const asU16LE = buf.toString('utf16le').replace(/\u0000/g, '');
         if (A1111_RE.test(asU16LE)) {
-            const { positive, negative, settings } = parseA1111Parameters(asU16LE);
+            const windowed = sliceAroundA1111(asU16LE);
+            const { positive, negative, settings } = parseA1111Parameters(windowed);
             const sw = normalizeExifString(exif['Software']);
             const tool: SDMeta['tool'] = sw.includes('Invoke') ? 'InvokeAI' : 'A1111';
-            return { tool, positive, negative, settings, raw: { exif, sweep: 'utf16le' } };
+            return {
+                tool,
+                positive: cleanText(positive),
+                negative: cleanText(negative),
+                settings: cleanSettings(settings),
+                raw: { exif, sweep: 'utf16le' }
+            };
         }
 
         // UTF-16BE (byte-swap, then decode LE)
@@ -434,10 +559,17 @@ export async function readSdMetadata(filePath: string): Promise<SDMeta | null> {
         }
         const asU16BE = swapped.toString('utf16le').replace(/\u0000/g, '');
         if (A1111_RE.test(asU16BE)) {
-            const { positive, negative, settings } = parseA1111Parameters(asU16BE);
+            const windowed = sliceAroundA1111(asU16BE);
+            const { positive, negative, settings } = parseA1111Parameters(windowed);
             const sw = normalizeExifString(exif['Software']);
             const tool: SDMeta['tool'] = sw.includes('Invoke') ? 'InvokeAI' : 'A1111';
-            return { tool, positive, negative, settings, raw: { exif, sweep: 'utf16be' } };
+            return {
+                tool,
+                positive: cleanText(positive),
+                negative: cleanText(negative),
+                settings: cleanSettings(settings),
+                raw: { exif, sweep: 'utf16be' }
+            };
         }
     } catch (e) {
         console.warn('[sd-meta] final sweep error:', e);

@@ -1,7 +1,7 @@
 {
   "name": "modelsnexus",
   "private": true,
-  "version": "1.0.33",
+  "version": "1.0.34",
   "license": "UNLICENSED",
   "description": "A cross-platform model browser and prompt-viewer for Stable Diffusion models",
   "author": "Badaxiom",
