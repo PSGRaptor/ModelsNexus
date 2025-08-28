@@ -12,7 +12,7 @@ import ScanProgressModal from './components/ScanProgressModal';
 import './index.css';
 import logo from './assets/logo.png';
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 50;
 
 const App: React.FC = () => {
     const [showConfig, setShowConfig] = useState(false);

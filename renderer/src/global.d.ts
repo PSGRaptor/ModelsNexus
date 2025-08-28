@@ -14,6 +14,14 @@ export interface SelectModelMainImageResult {
     filePaths?: string[];
 }
 
+declare const __BUILD_INFO__: {
+    version: string;
+    commit: string;
+    timestamp: string; // ISO 8601
+};
+
+declare const __APP_VERSION__: string;
+
 declare global {
     interface Window {
         electronAPI: {

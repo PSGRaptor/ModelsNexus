@@ -257,11 +257,6 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
     const renderHtml = (html: string) => (
         <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: html }} />
     );
-    const handleShowPrompt = () => {
-        if (modalImageIdx === null) return;
-        const selected = (isEditing ? editImages : images)[modalImageIdx];
-        window.electronAPI.openPromptViewer(selected);
-    };
 
     return (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">

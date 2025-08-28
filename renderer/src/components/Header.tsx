@@ -80,7 +80,6 @@ const Header: React.FC<HeaderProps> = ({ logo, onOpenConfig }) => {
                     shortDescription="Catalog and explore AI model files locally."
                     longDescription="Models Nexus scans local and network folders for AI model files (safetensor, gguf, .pt, LoRAs, etc.), fetches metadata from Civitai/Hugging Face, and presents it in a searchable, sortable database."
                     author="Badaxiom"
-                    lastUpdate="2025-07-21"
                     githubUrl="https://github.com/PSGRaptor/ModelsNexus"
                 />
                 <button

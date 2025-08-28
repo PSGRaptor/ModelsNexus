@@ -1,7 +1,7 @@
 {
   "name": "modelsnexus",
   "private": true,
-  "version": "1.0.34",
+  "version": "1.0.36",
   "license": "UNLICENSED",
   "description": "A cross-platform model browser and prompt-viewer for Stable Diffusion models",
   "author": "Badaxiom",
@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "build:renderer": "cd renderer && yarn install && yarn build",
+    "prebuild": "node scripts/genBuildInfo.js",
     "build:main": "tsc -p .",
     "build": "yarn build:renderer && yarn build:main",
     "prepackage": "rimraf out",

@@ -1,4 +1,5 @@
-// Need to add LastUpdate
+import { BUILD_DATE, COMMIT_HASH } from "../buildInfo.js";
+
 import React, { useState } from "react";
 import { Github, X } from "lucide-react";
 // Import version directly from root package.json
@@ -10,7 +11,6 @@ interface AboutModalProps {
     shortDescription: string;
     longDescription: string;
     author: string;
-    lastUpdate: string;
     githubUrl: string;
 }
 
@@ -20,10 +20,24 @@ export default function AboutModal({
                                        shortDescription,
                                        longDescription,
                                        author,
-                                       lastUpdate,
                                        githubUrl
                                    }: AboutModalProps) {
     const [isOpen, setIsOpen] = useState(false);
+
+    // Safely format build date (falls back to "Unknown" if missing/invalid)
+    let lastUpdateStr = "Unknown";
+    try {
+        if (BUILD_DATE) {
+            const d = new Date(BUILD_DATE);
+            if (!Number.isNaN(d.getTime())) {
+                lastUpdateStr = d.toLocaleString();
+            }
+        }
+    } catch {
+        // noop – keep "Unknown"
+    }
+
+    const shortCommit = (COMMIT_HASH || "").slice(0, 7);
 
     return (
         <>
@@ -76,8 +90,9 @@ export default function AboutModal({
                         {/* Info block */}
                         <div className="space-y-1 text-sm mb-4">
                             <p><strong>Author:</strong> {author}</p>
-                            <p><strong>Last Update:</strong> {lastUpdate}</p>
+                            <p><strong>Last Update:</strong> {lastUpdateStr}</p>
                             <p><strong>Version:</strong> {appVersion}</p>
+                            {shortCommit && <p><strong>Commit:</strong> {shortCommit}</p>}
                         </div>
 
                         {/* GitHub link */}
