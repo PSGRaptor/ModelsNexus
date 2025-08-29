@@ -76,6 +76,17 @@ declare global {
 
             // Prompt viewer / metadata
             openPromptViewer(imagePath: string): Promise<void>;
+
+            scanNewOrChanged: (scanRoots: string[]) => Promise<{
+                processed: number;
+                skipped: number;
+                totalCandidates: number;
+            }>;
+            scanFullRebuild: (scanRoots: string[]) => Promise<{
+                processed: number;
+                skipped: number;
+                totalCandidates: number;
+            }>;
         };
 
         // IPC bridges exposed via preload

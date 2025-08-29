@@ -3,7 +3,7 @@ process.on('unhandledRejection', (reason, _promise) => {
     console.error('🚨 Unhandled Promise Rejection:', reason);
 });
 
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, dialog } from 'electron';
 import { fileURLToPath } from 'url';
 import * as fs from 'fs';
 import { promises as fsp } from 'fs';
@@ -14,6 +14,8 @@ import { promisify } from 'util';
 import { readSdMetadata } from './metadata/sdMetadata.js';
 import { parseA1111Parameters } from './metadata/sdMetadata.js';
 import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
+import { scanNewOrChanged } from './scanner/incremental.js';
+import { processModelFile } from './scanner/ingestModel.js';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)
 
@@ -93,6 +95,13 @@ function toLocalFsPath(input: string): string {
         return s.replace(/^file:\/+/, '');
     }
     return s;
+}
+
+function isModelFile(filePath: string): boolean {
+    // Adjust to what you currently support.
+    // If your repo already has this helper, import and reuse it instead.
+    const ext = path.extname(filePath).toLowerCase();
+    return ['.safetensors', '.ckpt', '.pt', '.pth', '.bin', '.onnx', '.gguf'].includes(ext);
 }
 
 // Call bundled CLI in /resources when toggle is ON
@@ -228,19 +237,68 @@ ipcMain.handle('openPromptViewer', async (_event, imagePath: string) => {
  */
 function createMainWindow() {
     const iconPath = path.join(__dirname, '../resources/icon.png');
+
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
         minWidth: 1200,
         minHeight: 700,
+        // hide menu bar in packaged builds (Win/Linux shows on Alt if not hidden)
+        autoHideMenuBar: app.isPackaged,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
+            devTools: !app.isPackaged, // disable DevTools in production
         },
         show: false,
+        // icon: iconPath, // ← optional: uncomment if you want a custom icon here
     });
 
+    // --- Production-only hardening ---
+    if (app.isPackaged && mainWindow) {
+        if (process.platform === 'darwin') {
+            // Minimal macOS menu (users expect an app menu)
+            const template: Electron.MenuItemConstructorOptions[] = [
+                {
+                    label: app.name,
+                    submenu: [
+                        { role: 'about', label: `About ${app.name}` },
+                        { type: 'separator' },
+                        { role: 'hide' },
+                        { role: 'hideOthers' },
+                        { role: 'unhide' },
+                        { type: 'separator' },
+                        { role: 'quit', label: 'Quit' },
+                    ],
+                },
+            ];
+            const menu = Menu.buildFromTemplate(template);
+            Menu.setApplicationMenu(menu);
+        } else {
+            // Windows/Linux: remove the menu entirely
+            Menu.setApplicationMenu(null);
+            mainWindow.setMenuBarVisibility(false); // belt & suspenders
+            // (autoHideMenuBar already true from options)
+        }
+
+        // Block common DevTools shortcuts
+        mainWindow.webContents.on('before-input-event', (event, input) => {
+            const isOpenDevToolsShortcut =
+                input.type === 'keyDown' &&
+                (
+                    input.key === 'F12' ||
+                    (input.control && input.shift && input.key.toUpperCase() === 'I') || // Ctrl+Shift+I (Win/Linux)
+                    (input.meta && input.alt && input.key.toUpperCase() === 'I')        // Cmd+Opt+I (macOS)
+                );
+
+            if (isOpenDevToolsShortcut) {
+                event.preventDefault();
+            }
+        });
+    }
+
+    // Load URL or file as you already do
     if (process.env.NODE_ENV === 'development') {
         mainWindow.loadURL('http://localhost:5173');
     } else {
@@ -250,6 +308,7 @@ function createMainWindow() {
     mainWindow.once('ready-to-show', () => mainWindow?.show());
     mainWindow.on('closed', () => { mainWindow = null; });
 }
+
 
 // Electron app events
 app.on('ready', async () => {
@@ -327,6 +386,28 @@ ipcMain.handle('updateModel', async (_event, data) => {
         console.error('[updateModel] error:', err);
         return { success: false, error: err.message || String(err) };
     }
+});
+
+// New IPC: fast incremental scan
+ipcMain.handle('scan:newOrChanged', async (_e, scanRoots: string[]) => {
+    const res = await scanNewOrChanged(scanRoots, {
+        isModelFile,
+        processModelFile,
+        forceFull: false,
+        concurrency: 2, // keep small for HDDs; 3–4 ok for SSDs
+    });
+    return res;
+});
+
+// Optional IPC: explicit full rebuild using same module
+ipcMain.handle('scan:fullRebuild', async (_e, scanRoots: string[]) => {
+    const res = await scanNewOrChanged(scanRoots, {
+        isModelFile,
+        processModelFile,
+        forceFull: true,
+        concurrency: 2,
+    });
+    return res;
 });
 
 // ---- IMAGE HANDLERS ----

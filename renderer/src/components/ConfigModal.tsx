@@ -15,21 +15,25 @@ const THEME_LABELS: Record<Theme, string> = {
 
 const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [scanPaths, setScanPaths] = useState<string[]>([]);
-    const [newPath, setNewPath] = useState(''); // (kept, used by the input field)
+    const [newPath, setNewPath] = useState('');
     const [civitaiKey, setCivitaiKey] = useState('');
     const [huggingfaceKey, setHuggingfaceKey] = useState('');
     const [savingKeys, setSavingKeys] = useState(false);
     const [updating, setUpdating] = useState(false);
     const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
-    // NEW: external parser toggle state
+    // NEW: fast scan status
+    const [fastScanBusy, setFastScanBusy] = useState(false);
+    const [fastScanStatus, setFastScanStatus] = useState<string | null>(null);
+
+    // external parser toggle (logic preserved)
     const [useExternalParser, setUseExternalParser] = useState(false);
     const [parserBusy, setParserBusy] = useState(false);
 
-    // Theme control from context
+    // Theme control
     const { theme, setTheme } = useTheme();
 
-    // Fetch initial config values
+    // Fetch initial config
     useEffect(() => {
         (async () => {
             if (window.electronAPI) {
@@ -45,7 +49,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         })();
     }, []);
 
-    // Add a new scan path (uses folder picker)
+    // Add a new scan path (picker)
     const handleAddPath = async () => {
         const folder = await window.electronAPI.selectFolder();
         if (!folder) return;
@@ -55,7 +59,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         }
     };
 
-    // Remove/disable a scan path
+    // Remove a scan path
     const handleRemovePath = async (path: string) => {
         await window.electronAPI.removeScanPath(path);
         const allPaths = await window.electronAPI.getAllScanPaths();
@@ -76,10 +80,10 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         setUpdateStatus(null);
         try {
             const res = await window.electronAPI.reenrichAllModels();
-            if (res.success) {
+            if (res?.success) {
                 setUpdateStatus('All models have been re-enriched!');
             } else {
-                setUpdateStatus(`Failed: ${res.error || 'Unknown error'}`);
+                setUpdateStatus(`Failed: ${res?.error || 'Unknown error'}`);
             }
         } catch (err) {
             setUpdateStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -87,7 +91,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         setUpdating(false);
     };
 
-    // Toggle the external parser flag
+    // Toggle external parser (logic preserved)
     const toggleExternalParser = async () => {
         if (!window.settingsAPI) return;
         setParserBusy(true);
@@ -97,10 +101,33 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         setParserBusy(false);
     };
 
-    // Theme selector for light/dark/auto
+    // Fast scan: only new/changed
+    const onFastScan = async () => {
+        setFastScanBusy(true);
+        setFastScanStatus(null);
+        try {
+            const roots = scanPaths.length
+                ? scanPaths
+                : (await window.electronAPI.getAllScanPaths()).map((p: any) => p.path);
+
+            const res = await window.electronAPI.scanNewOrChanged(roots);
+            const processed = res?.processed ?? 0;
+            const skipped = res?.skipped ?? 0;
+            const totalCandidates = res?.totalCandidates ?? processed + skipped;
+            const errors = Math.max(0, totalCandidates - processed - skipped);
+
+            setFastScanStatus(
+                `Fast scan complete. Processed: ${processed}, Skipped: ${skipped}${errors ? `, Errors: ${errors}` : ''}.`
+            );
+        } catch (e) {
+            setFastScanStatus(`Fast scan failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        setFastScanBusy(false);
+    };
+
     const renderThemeSelector = () => (
         <div className="mb-6">
-            <div className="font-semibold mb-2">App Theme</div>
+            <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">App Theme</div>
             <div className="flex gap-2">
                 {(Object.keys(THEME_LABELS) as Theme[]).map((t) => (
                     <button
@@ -207,49 +234,46 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         {savingKeys ? 'Saving...' : 'Save API Keys'}
                     </button>
                 </div>
-                {/*                 NEW: Prompt Metadata Parser Toggle
-                <div className="mb-6 pt-2 border-t border-zinc-200 dark:border-zinc-700">
-                    <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Prompt Metadata Parser</div>
-                    <div className="flex items-center justify-between py-1">
-                        <div className="text-xs opacity-80">
-                            Use <span className="font-medium">sd-prompt-viewer</span> external parser for metadata (CLI fallback).
-                            <br />
-                            Executables expected at <code>resources/sd-prompt-reader.exe</code> and <code>resources/sd-prompt-reader-cli.exe</code>.
-                        </div>
-                        <label className="inline-flex items-center cursor-pointer relative">
-                            <input
-                                type="checkbox"
-                                className="sr-only peer"
-                                checked={useExternalParser}
-                                onChange={toggleExternalParser}
-                                disabled={parserBusy}
-                            />
-                            <div className="w-11 h-6 bg-gray-200 dark:bg-zinc-700 rounded-full peer
-                                            peer-checked:after:translate-x-full peer-checked:after:border-white
-                                            after:content-[''] after:absolute after:top-[2px] after:left-[2px]
-                                            after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all
-                                            peer-checked:bg-blue-600" />
-                        </label>
-                    </div>
-                </div>
-*/}
-                {/* Re-enrich All Models Button */}
+
+                {/* Maintenance */}
                 <div className="mb-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">
                     <div className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Maintenance</div>
-                    <button
-                        onClick={handleReenrichAll}
-                        disabled={updating}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold shadow"
-                    >
-                        {updating ? 'Re-enriching All Models…' : 'Re-enrich All Models'}
-                    </button>
+
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            onClick={handleReenrichAll}
+                            disabled={updating}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold shadow disabled:opacity-60"
+                        >
+                            {updating ? 'Re-enriching All Models…' : 'Re-enrich All Models'}
+                        </button>
+
+                        {/* Fast scan */}
+                        <button
+                            onClick={onFastScan}
+                            disabled={fastScanBusy}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded font-semibold shadow disabled:opacity-60"
+                            title="Scan only new/changed models"
+                        >
+                            {fastScanBusy ? 'Scanning new/changed…' : 'Scan new/changed (fast)'}
+                        </button>
+                    </div>
+
                     {updateStatus && (
                         <div className={`mt-2 text-sm ${updateStatus.startsWith('Failed') ? 'text-red-500' : 'text-green-600'}`}>
                             {updateStatus}
                         </div>
                     )}
+
+                    {fastScanStatus && (
+                        <div className={`mt-1 text-sm ${fastScanStatus.startsWith('Fast scan failed') ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {fastScanStatus}
+                        </div>
+                    )}
+
                     <div className="text-xs text-zinc-500 dark:text-zinc-300 mt-1">
-                        Use this to refresh tags, images, and info for every scanned model.
+                        Use <span className="font-medium">Scan new/changed (fast)</span> to ingest only files detected as new or modified
+                        since the last run. Use <span className="font-medium">Re-enrich</span> to refresh metadata for everything.
                     </div>
                 </div>
             </div>
