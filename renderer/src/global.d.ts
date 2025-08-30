@@ -77,10 +77,12 @@ declare global {
             // Prompt viewer / metadata
             openPromptViewer(imagePath: string): Promise<void>;
 
-            scanNewOrChanged: (scanRoots: string[]) => Promise<{
+            scanNewOrChanged: (roots: string[]) => Promise<{
                 processed: number;
                 skipped: number;
                 totalCandidates: number;
+                errors: number;
+                errorsDetail?: { file: string; error: string }[];
             }>;
             scanFullRebuild: (scanRoots: string[]) => Promise<{
                 processed: number;

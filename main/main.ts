@@ -14,8 +14,8 @@ import { promisify } from 'util';
 import { readSdMetadata } from './metadata/sdMetadata.js';
 import { parseA1111Parameters } from './metadata/sdMetadata.js';
 import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
-import { scanNewOrChanged } from './scanner/incremental.js';
 import { processModelFile } from './scanner/ingestModel.js';
+import { scanNewOrChanged } from './scanner/fastScan.js';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)
 
@@ -61,6 +61,42 @@ let promptViewerWindow: BrowserWindow | null = null;
 let promptReaderProcess: ChildProcess | null = null;
 let promptProcess: ChildProcess | null = null;
 let lastImagePath: string | null = null;
+
+function registerFastScanIpc() {
+    // Ensure we never double-register (dev reloads, multiple calls, etc.)
+    ipcMain.removeHandler('scanNewOrChanged');
+
+    ipcMain.handle('scanNewOrChanged', async (_event, rootsMaybe?: string[] | null) => {
+        try {
+            // Resolve roots:
+            // - if the renderer passed an array with items, use it
+            // - otherwise, fall back to the saved scan paths in the DB
+            let roots: string[];
+            if (Array.isArray(rootsMaybe) && rootsMaybe.length > 0) {
+                roots = rootsMaybe;
+            } else {
+                const rows = await getAllScanPaths();
+                roots = (Array.isArray(rows) ? rows : [])
+                    .map((r: any) => r.path)
+                    .filter((p: unknown): p is string => typeof p === 'string' && p.length > 0);
+            }
+
+            const result = await scanNewOrChanged(roots);
+            return result;
+        } catch (err: any) {
+            console.error('[scanNewOrChanged] error', err);
+            return {
+                processed: 0,
+                skipped: 0,
+                totalCandidates: 0,
+                errors: 1,
+                errorsDetail: [
+                    { file: '(ipc)', error: String(err?.message ?? err) },
+                ],
+            };
+        }
+    });
+}
 
 // Format SDMeta to the string PromptViewer expects
 function formatMetaString(meta: any): string {
@@ -336,6 +372,8 @@ app.on('ready', async () => {
         );
         registerModelsPageHandlers(db as any);
 
+        registerFastScanIpc();
+
     } catch (err) {
         console.error('❌ Database initialization failed:', err);
         app.quit();
@@ -388,25 +426,10 @@ ipcMain.handle('updateModel', async (_event, data) => {
     }
 });
 
-// New IPC: fast incremental scan
-ipcMain.handle('scan:newOrChanged', async (_e, scanRoots: string[]) => {
-    const res = await scanNewOrChanged(scanRoots, {
-        isModelFile,
-        processModelFile,
-        forceFull: false,
-        concurrency: 2, // keep small for HDDs; 3–4 ok for SSDs
-    });
-    return res;
-});
-
 // Optional IPC: explicit full rebuild using same module
 ipcMain.handle('scan:fullRebuild', async (_e, scanRoots: string[]) => {
-    const res = await scanNewOrChanged(scanRoots, {
-        isModelFile,
-        processModelFile,
-        forceFull: true,
-        concurrency: 2,
-    });
+    // CALL WITH ONE ARG (full rebuild behavior should be handled inside fastScan module)
+    const res = await scanNewOrChanged(scanRoots);
     return res;
 });
 
