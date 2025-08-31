@@ -1,80 +1,75 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { processModelFile as ingestModel } from './ingestModel.js';
+// File: main/scanner/fastScan.ts
+import { BrowserWindow } from 'electron';
+import { scanAndImportModels } from '../electron-utils/modelScanner.js';
+import { getAllScanPaths } from '../../db/db-utils.js';
 
 export type FastScanResult = {
     processed: number;
     skipped: number;
     totalCandidates: number;
     errors: number;
-    errorsDetail?: { file: string; error: string }[];
+    errorsDetail?: Array<{ file: string; error: string }>;
 };
 
-console.log('[fast-scan] USING DIRECT INGEST (no fallback)');
+/**
+ * Fast scan that reuses the existing full scanner so we:
+ *  - emit incremental progress via the same 'scan-progress' channel (already handled in preload/UI)
+ *  - avoid introducing a second ingest path
+ *  - respect your current DB “INSERT OR IGNORE” behavior (existing models are skipped)
+ *
+ * It accepts an optional list of roots; if omitted, it pulls the enabled scan paths from the DB.
+ */
+export async function scanNewOrChanged(roots?: string[]): Promise<FastScanResult> {
+    // Resolve scan roots
+    const scanRoots: string[] = Array.isArray(roots) && roots.length > 0
+        ? roots
+        : (await getAllScanPaths()).map((r: any) => r.path);
 
-const MODEL_EXTS = new Set([
-    '.safetensors', '.ckpt', '.pth', '.pt', '.onnx', '.bin', '.gguf', '.ckpt2', '.model', '.pickle',
-]);
+    // Identify the window to forward progress events (your modelScanner emits 'scan-progress')
+    const win = BrowserWindow.getAllWindows()[0];
+    const webContents = win?.webContents ?? undefined;
 
-function isLikelyModelFile(filePath: string): boolean {
-    const ext = path.extname(filePath).toLowerCase();
-    return MODEL_EXTS.has(ext);
-}
-
-function normAbs(p: string): string {
-    const abs = path.resolve(p).replace(/\//g, path.sep);
-    return process.platform === 'win32'
-        ? abs.replace(/^([A-Z]):\\/, (m, d) => d.toLowerCase() + ':\\')
-        : abs;
-}
-
-// Stub until you wire your DB’s known paths
-async function loadKnownPaths(): Promise<Set<string>> {
-    return new Set<string>();
-}
-
-export async function scanNewOrChanged(roots: string[]): Promise<FastScanResult> {
-    const errorsDetail: { file: string; error: string }[] = [];
-    let totalCandidates = 0, processed = 0, skipped = 0, errors = 0;
-
-    if (!Array.isArray(roots) || roots.length === 0) {
-        return { processed, skipped, totalCandidates, errors, errorsDetail };
-    }
-    if (typeof ingestModel !== 'function') {
-        throw new Error('Named export processModelFile not found from ./ingestModel.js');
+    // Optional: let the UI know we’re starting (reuses the same channel)
+    if (webContents) {
+        webContents.send('scan-progress', {
+            current: 0,
+            total: 0,
+            file: '',
+            status: 'starting-fast-scan',
+        });
     }
 
-    const known = await loadKnownPaths();
+    // Your real scanner signature: (scanDirs, webContentsInstance, isCancelled)
+    // We don’t cancel here, so pass a stub.
+    const importedHashes: string[] = await scanAndImportModels(
+        scanRoots,
+        webContents,
+        () => false
+    );
 
-    async function walk(root: string) {
-        const rootAbs = normAbs(root);
-        let st: fs.Stats;
-        try { st = fs.statSync(rootAbs); } catch (e) {
-            errors++; errorsDetail.push({ file: rootAbs, error: (e as Error).message }); return;
-        }
-        if (!st.isDirectory()) return;
+    // We don’t have a reliable total/skip/error breakdown from the scanner return type,
+    // but we *do* know how many were imported. Treat the rest as skipped, with no errors.
+    const processed = importedHashes.length;
 
-        const stack = [rootAbs];
-        while (stack.length) {
-            const dir = stack.pop()!;
-            let entries: fs.Dirent[];
-            try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-            catch (e) { errors++; errorsDetail.push({ file: dir, error: (e as Error).message }); continue; }
+    // If you want more accurate totals in the future, add an optional summary object
+    // to the scanner’s return without changing existing behavior.
 
-            for (const ent of entries) {
-                const full = normAbs(path.join(dir, ent.name));
-                if (ent.isDirectory()) { stack.push(full); continue; }
-                if (!isLikelyModelFile(full)) continue;
+    const result: FastScanResult = {
+        processed,
+        skipped: 0,
+        totalCandidates: processed,
+        errors: 0,
+    };
 
-                totalCandidates++;
-                if (known.has(full)) { skipped++; continue; }
-
-                try { await ingestModel(full); processed++; }
-                catch (e) { errors++; errorsDetail.push({ file: full, error: (e as Error).message }); }
-            }
-        }
+    // Optional: final “done” progress ping for UI completeness
+    if (webContents) {
+        webContents.send('scan-progress', {
+            current: processed,
+            total: processed,
+            file: '',
+            status: 'done-fast-scan',
+        });
     }
 
-    for (const r of roots) await walk(r);
-    return { processed, skipped, totalCandidates, errors, errorsDetail };
+    return result;
 }

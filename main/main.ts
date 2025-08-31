@@ -14,7 +14,6 @@ import { promisify } from 'util';
 import { readSdMetadata } from './metadata/sdMetadata.js';
 import { parseA1111Parameters } from './metadata/sdMetadata.js';
 import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
-import { processModelFile } from './scanner/ingestModel.js';
 import { scanNewOrChanged } from './scanner/fastScan.js';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)

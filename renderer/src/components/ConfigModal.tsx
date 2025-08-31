@@ -1,10 +1,22 @@
 // File: renderer/src/components/ConfigModal.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTheme, Theme } from '../context/ThemeContext';
 
 type ConfigModalProps = {
     onClose: () => void;
+};
+
+// Progress event payload from main process
+type FastScanProgress = {
+    phase: 'start' | 'progress' | 'done';
+    totalCandidates: number;
+    checked: number;
+    processed: number;
+    skipped: number;
+    errors: number;
+    currentFile?: string;
+    lastResult?: 'added' | 'updated' | 'skipped' | 'error';
 };
 
 const THEME_LABELS: Record<Theme, string> = {
@@ -23,7 +35,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [updating, setUpdating] = useState(false);
     const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
-    // Fast scan UI state
+    // --- Fast scan state (existing) ---
     const [fastScanBusy, setFastScanBusy] = useState(false);
     const [fastScanStatus, setFastScanStatus] = useState<string | null>(null);
     const [fastScanResult, setFastScanResult] = useState<{
@@ -33,6 +45,13 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         errors: number;
         errorsDetail?: { file: string; error: string }[];
     } | null>(null);
+
+    // --- New: live progress subscription state ---
+    const [scanProgress, setScanProgress] = useState<FastScanProgress | null>(null);
+    const percent = useMemo(() => {
+        if (!scanProgress || scanProgress.totalCandidates === 0) return 0;
+        return Math.floor((scanProgress.checked / scanProgress.totalCandidates) * 100);
+    }, [scanProgress]);
 
     // External parser toggle (logic preserved)
     const [useExternalParser, setUseExternalParser] = useState(false);
@@ -56,6 +75,30 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
             }
         })();
     }, []);
+
+    // Subscribe to incremental fast-scan progress (safe with optional chaining)
+    // AFTER: use the real helper exposed by preload
+    useEffect(() => {
+        const api = window.electronAPI as any;
+        if (!api?.onScanProgress) return;
+
+        // Call the subscription; it may return undefined or an unsubscribe function.
+        const maybeUnsub = api.onScanProgress((p: FastScanProgress) => {
+            setScanProgress(p);
+            setFastScanBusy(p.phase !== 'done');
+        }) as unknown;
+
+        // Cleanup: only call if a function was returned
+        return () => {
+            if (typeof maybeUnsub === 'function') {
+                try { (maybeUnsub as () => void)(); } catch { /* no-op */ }
+            } else if (typeof api?.offScanProgress === 'function') {
+                // Optional: if your preload exposes an explicit "off" helper
+                try { api.offScanProgress(); } catch { /* no-op */ }
+            }
+        };
+    }, []);
+
 
     // Add a new scan path
     const handleAddPath = async () => {
@@ -111,6 +154,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
         setFastScanBusy(true);
         setFastScanStatus(null);
         setFastScanResult(null);
+        setScanProgress(null); // clear previous live progress
         try {
             const roots =
                 scanPaths.length > 0
@@ -118,6 +162,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                     : (await window.electronAPI.getAllScanPaths()).map((p: any) => p.path);
 
             const res = await window.electronAPI.scanNewOrChanged(roots);
+
             // Persist raw result for optional details UI
             setFastScanResult(res);
 
@@ -280,6 +325,49 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                             {fastScanBusy ? 'Scanning new/changed…' : 'Scan new/changed (fast)'}
                         </button>
                     </div>
+
+                    {/* --- New: live progress block --- */}
+                    {scanProgress && (
+                        <div className="mt-3 rounded-md border border-zinc-300 dark:border-zinc-700 p-3">
+                            <div className="flex items-center justify-between text-sm">
+                                <div className="font-medium">
+                                    {scanProgress.phase === 'done' ? 'Fast scan complete' : 'Scanning…'}
+                                </div>
+                                <div className="tabular-nums">
+                                    {scanProgress.checked}/{scanProgress.totalCandidates} ({percent}%)
+                                </div>
+                            </div>
+
+                            {/* progress bar */}
+                            <div className="mt-2 h-2 w-full bg-zinc-200 dark:bg-zinc-800 rounded">
+                                <div
+                                    className="h-2 rounded bg-blue-500 transition-all"
+                                    style={{ width: `${percent}%` }}
+                                />
+                            </div>
+
+                            {/* counters */}
+                            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                                <div className="rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1">
+                                    Added/Processed: <b className="tabular-nums">{scanProgress.processed}</b>
+                                </div>
+                                <div className="rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-2 py-1">
+                                    Skipped: <b className="tabular-nums">{scanProgress.skipped}</b>
+                                </div>
+                                <div className="rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-2 py-1">
+                                    Errors: <b className="tabular-nums">{scanProgress.errors}</b>
+                                </div>
+                            </div>
+
+                            {/* current file */}
+                            {scanProgress.currentFile && scanProgress.phase !== 'done' && (
+                                <div className="mt-2 text-xs text-zinc-600 dark:text-zinc-300 truncate">
+                                    <span className="opacity-70">Now: </span>
+                                    {scanProgress.currentFile}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {updateStatus && (
                         <div

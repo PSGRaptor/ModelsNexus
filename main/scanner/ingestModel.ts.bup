@@ -1,26 +1,12 @@
 /**
  * Single-file ingest shim used by fastScan.
- * It first tries your explicit wiring (main/scanner/ingest.wire.ts).
- * If that’s not set, it falls back to dynamic discovery.
+ * Finds your existing ingest function (wherever it lives) and calls it.
  */
 
 type AnyIngestFn = (filePath: string) => unknown;
 
-// 1) Prefer explicit wiring if you set it.
-import { directIngest } from './ingest.wire.js';
-
-// 2) Dynamic fallbacks if explicit wiring is not provided.
 const CANDIDATE_MODULES = [
-    '../ingestModel.js',
-    '../ingestModel.ts',
-
-    './index.js',
-    './index.ts',
-    './scan.js',
-    './scan.ts',
-    './ingest.js',
-    './ingest.ts',
-
+    // scanner
     '../scanner/index.js',
     '../scanner/index.ts',
     '../scanner/scan.js',
@@ -28,17 +14,21 @@ const CANDIDATE_MODULES = [
     '../scanner/ingest.js',
     '../scanner/ingest.ts',
 
+    // services
     '../services/modelScanner.js',
     '../services/modelScanner.ts',
 
+    // db/models
     '../db/models.js',
     '../db/models.ts',
 
+    // models
     '../models/models.js',
     '../models/models.ts',
     '../models/index.js',
     '../models/index.ts',
 
+    // electron-utils
     '../electron-utils/modelScanner.js',
     '../electron-utils/modelScanner.ts',
 ] as const;
@@ -55,19 +45,18 @@ const CANDIDATE_EXPORTS = [
 
 async function tryImport(pathLike: string): Promise<Record<string, unknown> | null> {
     try {
+        // Always import with .js at runtime; when bundling TS→JS, the .ts entries above
+        // will be emitted to JS alongside. If a given import fails, we just continue.
         return await import(pathLike);
     } catch {
         return null;
     }
 }
 
+/**
+ * Locate a usable ingest function (by name) across common modules.
+ */
 async function resolveRealIngest(): Promise<{ fn: AnyIngestFn; from: string; name: string } | null> {
-    // Prefer explicit wiring if present
-    if (typeof directIngest === 'function') {
-        return { fn: directIngest as AnyIngestFn, from: './ingest.wire.js', name: 'directIngest' };
-    }
-
-    // Fallback to dynamic search
     for (const modPath of CANDIDATE_MODULES) {
         const mod = await tryImport(modPath);
         if (!mod) continue;
@@ -78,29 +67,35 @@ async function resolveRealIngest(): Promise<{ fn: AnyIngestFn; from: string; nam
                 return { fn: candidate as AnyIngestFn, from: modPath, name: expName };
             }
         }
-
-        if (typeof (mod as any).default === 'function') {
-            return { fn: (mod as any).default as AnyIngestFn, from: modPath, name: 'default' };
-        }
     }
     return null;
 }
 
-/** The function fastScan calls. Normalize to Promise<void>. */
+/**
+ * The function fastScan calls. We normalize to Promise<void> so TS doesn’t care what the
+ * underlying ingest returns (some code returns the DB row, others return boolean, etc.).
+ */
 export async function processModelFile(filePath: string): Promise<void> {
     const resolved = await resolveRealIngest();
     if (!resolved) {
+        // Mirror the fastScan error wording so issues are obvious in logs too.
         const locations = CANDIDATE_MODULES.map(p => ` - ${p}`).join('\n');
         const names = CANDIDATE_EXPORTS.join(', ');
         const msg =
             `Could not locate a model ingest function. Please map your real ingest function ` +
-            `to one of: ${names} (or default export) or set directIngest in ./ingest.wire.ts.\n` +
-            `Searched:\n${locations}`;
+            `to one of: ${names} in any of:\n${locations}`;
         throw new Error(msg);
     }
 
-    await Promise.resolve(resolved.fn(filePath)).then(() => undefined);
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(`[ingest-shim] using '${resolved.name}' from ${resolved.from} for`, filePath);
+    try {
+        const maybe = await resolved.fn(filePath);
+        // Swallow any non-void return to conform to Promise<void>.
+        void maybe;
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`[ingest-shim] used ${resolved.name} from ${resolved.from} for`, filePath);
+        }
+    } catch (err) {
+        // Re-throw to let fastScan collect the error per file.
+        throw err;
     }
 }

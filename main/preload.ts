@@ -50,11 +50,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteModelImage: (hash: string, name: string) => ipcRenderer.invoke('deleteModelImage', hash, name),
     //openPromptViewer: (imgPath: string) => ipcRenderer.invoke('open-prompt-viewer', imgPath),
     getPromptMetadata: (imagePath: string) => ipcRenderer.invoke('getPromptMetadata', imagePath),
-    scanNewOrChanged: (roots: string[]) => ipcRenderer.invoke('scanNewOrChanged', roots),
-    // scanNewOrChanged: (scanRoots: string[]) => ipcRenderer.invoke('scan:newOrChanged', scanRoots),
+    scanNewOrChanged: async (roots?: string[]) => ipcRenderer.invoke('scanNewOrChanged', roots),
 
     scanFullRebuild: (scanRoots: string[]) =>
         ipcRenderer.invoke('scan:fullRebuild', scanRoots),
+
+    onFastScanProgress: (handler: (p: any) => void) => {
+        const listener = (_evt: Electron.IpcRendererEvent, payload: any) => handler(payload);
+        ipcRenderer.on('fast-scan-progress', listener);
+        // return a disposer
+        return () => ipcRenderer.removeListener('fast-scan-progress', listener);
+    },
 });
 
 contextBridge.exposeInMainWorld('promptAPI', {

@@ -1,0 +1,112 @@
+import * as fs from 'fs';
+import * as path from 'path';
+// IMPORTANT: import WITHOUT “.js” so TS/ESM resolves the built file correctly after build
+import { processModelFile } from './ingestModel.js';
+
+type FastScanResult = {
+    processed: number;
+    skipped: number;
+    totalCandidates: number;
+    errors: number;
+    errorsDetail?: { file: string; error: string }[];
+};
+
+// Supported model file extensions
+const MODEL_EXTS = new Set([
+    '.safetensors', '.ckpt', '.pth', '.pt', '.onnx', '.bin', '.gguf', // common
+    '.ckpt2', '.model', '.pickle',                                     // long tail
+]);
+
+function isLikelyModelFile(filePath: string): boolean {
+    const ext = path.extname(filePath).toLowerCase();
+    return MODEL_EXTS.has(ext);
+}
+
+function normAbs(p: string): string {
+    const abs = path.resolve(p);
+    // normalize slashes; on Windows also lower-case drive to avoid mismatches
+    const normalized = abs.replace(/\//g, path.sep);
+    if (process.platform === 'win32') {
+        // lower-case drive letter only (C:\ -> c:\)
+        return normalized.replace(/^([A-Z]):\\/, (_m, d: string) => d.toLowerCase() + ':\\');
+    }
+    return normalized;
+}
+
+/**
+ * Fast scan: walk roots, ingest only new/changed files.
+ * NOTE: This version does NOT attempt change detection (mtime/size) yet — it
+ * simply tries to ingest candidates and lets your ingest function decide
+ * whether to upsert or skip. That keeps this scanner regression-free.
+ */
+export async function scanNewOrChanged(roots?: string[]): Promise<FastScanResult> {
+    const errorsDetail: { file: string; error: string }[] = [];
+    let totalCandidates = 0;
+    let processed = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    // Defensive: nothing to do without roots
+    if (!Array.isArray(roots) || roots.length === 0) {
+        return { processed, skipped, totalCandidates, errors, errorsDetail };
+    }
+
+    async function walk(root: string) {
+        const rootAbs = normAbs(root);
+        try {
+            const st = fs.statSync(rootAbs);
+            if (!st.isDirectory()) return;
+        } catch (e) {
+            errors++;
+            errorsDetail.push({ file: rootAbs, error: (e as Error).message });
+            return;
+        }
+
+        const stack: string[] = [rootAbs];
+        while (stack.length) {
+            const dir = stack.pop()!;
+            let entries: fs.Dirent[];
+
+            try {
+                entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch (e) {
+                errors++;
+                errorsDetail.push({ file: dir, error: (e as Error).message });
+                continue;
+            }
+
+            for (const ent of entries) {
+                const full = path.join(dir, ent.name);
+                if (ent.isDirectory()) {
+                    stack.push(full);
+                    continue;
+                }
+                if (!ent.isFile()) continue;
+
+                if (isLikelyModelFile(full)) {
+                    totalCandidates++;
+                    try {
+                        // Delegate to your actual ingest (upsert/skip logic lives there)
+                        await processModelFile(full);
+                        processed++;
+                    } catch (e) {
+                        errors++;
+                        errorsDetail.push({ file: full, error: (e as Error).message });
+                    }
+                }
+            }
+        }
+    }
+
+    // Walk all roots sequentially (simple & safe)
+    for (const r of roots) {
+        try {
+            await walk(r);
+        } catch (e) {
+            errors++;
+            errorsDetail.push({ file: String(r), error: (e as Error).message });
+        }
+    }
+
+    return { processed, skipped, totalCandidates, errors, errorsDetail };
+}
