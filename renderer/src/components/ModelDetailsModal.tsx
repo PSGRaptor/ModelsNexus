@@ -3,6 +3,8 @@
 import React, { useEffect, useState, ChangeEvent, DragEvent } from 'react';
 import PromptViewerModal from './PromptViewerModal';
 import placeholderModel from '../assets/placeholder-model.png';
+import SafeImage from './SafeImage';
+
 import {
     FaExternalLinkAlt,
     FaChevronLeft,
@@ -316,13 +318,14 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                     <span className="font-semibold text-gray-800 dark:text-gray-100">Main Image:</span>
                     <div className="mt-2">
                         {model?.main_image_path ? (
-                            <img
+                            <SafeImage
                                 src={model.main_image_path}
                                 alt="Main"
                                 className="max-h-40 rounded shadow border"
+                                meta={model}
                             />
                         ) : (
-                            <img
+                            <SafeImage
                                 src={placeholderModel}
                                 alt="Placeholder"
                                 className="max-h-40 w-full object-contain rounded shadow border bg-gray-100 dark:bg-zinc-800"
@@ -361,12 +364,13 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                             {(isEditing ? editImages : images).slice(0, 6).map((img, idx) =>
                                     img && (
                                         <div key={img} className="relative">
-                                            <img
+                                            <SafeImage
                                                 src={img.startsWith('file://') ? img : `file://${img}`}
                                                 alt="preview"
                                                 className="rounded shadow cursor-pointer bg-zinc-100 dark:bg-zinc-800"
                                                 onClick={() => setModalImageIdx(idx)}
                                                 draggable={false}
+                                                meta={{ fileName: img }}   // lets SafeImage check filename for NSFW hints
                                             />
                                             {isEditing && (
                                                 <button
@@ -556,10 +560,11 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                         <button className="absolute left-4 text-3xl text-white" onClick={e=>{e.stopPropagation();setModalImageIdx(i=>(i!>0?i!-1: (isEditing?editImages:images).length-1));}}>
                             <FaChevronLeft/>
                         </button>
-                        <img
-                            src={(isEditing?editImages:images)[modalImageIdx]!}
+                        <SafeImage
+                            src={(isEditing ? editImages : images)[modalImageIdx]!}
                             alt="full"
                             className="max-h-[90vh] max-w-[90vw] rounded shadow-lg"
+                            meta={{ fileName: (isEditing ? editImages : images)[modalImageIdx]! }}
                         />
                         <button className="absolute right-4 text-3xl text-white" onClick={e=>{e.stopPropagation();setModalImageIdx(i=>(i!< (isEditing?editImages:images).length-1?i!+1:0));}}>
                             <FaChevronRight/>

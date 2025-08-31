@@ -11,47 +11,63 @@ import Spinner from './components/Spinner';
 import ScanProgressModal from './components/ScanProgressModal';
 import './index.css';
 import logo from './assets/logo.png';
+import { SettingsProvider } from './context/SettingsContext';
 
 const PAGE_SIZE = 50;
 
-const App: React.FC = () => {
+/**
+ * AppContent holds the existing app UI and logic.
+ * It is wrapped by <SettingsProvider> in the default export below.
+ */
+const AppContent: React.FC = () => {
     const [showConfig, setShowConfig] = useState(false);
     const [selectedModel, setSelectedModel] = useState<string | null>(null);
     const [models, setModels] = useState<ModelInfo[]>([]);
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState('');
-    const [scanProgress, setScanProgress] = useState<{ current: number; total: number; file: string; status?: string } | null>(null);
+    const [scanProgress, setScanProgress] = useState<{
+        current: number;
+        total: number;
+        file: string;
+        status?: string;
+    } | null>(null);
     const [scanInProgress, setScanInProgress] = useState(false);
 
     // Derived filtering for the grid
     const filteredModels = models
-        .filter(m =>
-            (
-                !typeFilter ||
-                (m.model_type && m.model_type.toLowerCase() === typeFilter.toLowerCase()) ||
-                (m.file_name && m.file_name.toLowerCase().includes(typeFilter.toLowerCase()))
-            )
-            &&
-            (
-                m.file_name?.toLowerCase().includes(search.toLowerCase()) ||
-                m.model_type?.toLowerCase().includes(search.toLowerCase()) ||
-                (m.base_model || '').toLowerCase().includes(search.toLowerCase())
-            )
+        .filter(
+            (m) =>
+                (!typeFilter ||
+                    (m.model_type &&
+                        m.model_type.toLowerCase() === typeFilter.toLowerCase()) ||
+                    (m.file_name &&
+                        m.file_name.toLowerCase().includes(typeFilter.toLowerCase()))) &&
+                ((m.file_name ?? '')
+                        .toLowerCase()
+                        .includes(search.toLowerCase()) ||
+                    (m.model_type ?? '')
+                        .toLowerCase()
+                        .includes(search.toLowerCase()) ||
+                    (m.base_model ?? '').toLowerCase().includes(search.toLowerCase()))
         )
-        .sort((a, b) => a.file_name.localeCompare(b.file_name, undefined, { sensitivity: 'base' }));
+        .sort((a, b) =>
+            a.file_name.localeCompare(b.file_name, undefined, {
+                sensitivity: 'base',
+            })
+        );
 
     // Normalize model row into ModelInfo shape
     function mapRowToModelInfo(m: any): ModelInfo {
         const cover =
             m.main_image_path /* DB cover field */ ||
-            m.thumbnail_path  /* from models:list */ ||
-            m.cover_image     /* pre-shaped */ ||
+            m.thumbnail_path /* from models:list */ ||
+            m.cover_image /* pre-shaped */ ||
             null;
 
         return {
             model_hash: m.model_hash,
-            file_name:  m.file_name || m.name || '',
+            file_name: m.file_name || m.name || '',
             base_model: m.base_model,
             model_type: m.model_type,
             is_favorite: Number(m.is_favorite ?? 0),
@@ -68,14 +84,20 @@ const App: React.FC = () => {
             try {
                 let offset = 0;
 
-                const first: any[] = await (window as any).electron.ipcRenderer.invoke('models:list', { offset, limit: PAGE_SIZE });
+                const first: any[] = await (window as any).electron.ipcRenderer.invoke(
+                    'models:list',
+                    { offset, limit: PAGE_SIZE }
+                );
                 setModels(first.map(mapRowToModelInfo));
                 offset += first.length;
 
                 while (true) {
-                    const next: any[] = await (window as any).electron.ipcRenderer.invoke('models:list', { offset, limit: PAGE_SIZE });
+                    const next: any[] = await (window as any).electron.ipcRenderer.invoke(
+                        'models:list',
+                        { offset, limit: PAGE_SIZE }
+                    );
                     if (!next || next.length === 0) break;
-                    setModels(prev => [...prev, ...next.map(mapRowToModelInfo)]);
+                    setModels((prev) => [...prev, ...next.map(mapRowToModelInfo)]);
                     offset += next.length;
                 }
 
@@ -94,7 +116,7 @@ const App: React.FC = () => {
         setLoading(false);
     }, []);
 
-    // Initial load — NO scan here (avoids 5‑minute startup delay)
+    // Initial load — NO scan here (avoids 5-minute startup delay)
     useEffect(() => {
         loadModelsPaged();
     }, [loadModelsPaged]);
@@ -113,7 +135,9 @@ const App: React.FC = () => {
 
             // Prefer new incremental scan
             if ((window as any).electron?.ipcRenderer) {
-                await (window as any).electron.ipcRenderer.invoke('scan:start', { mode: 'incremental' });
+                await (window as any).electron.ipcRenderer.invoke('scan:start', {
+                    mode: 'incremental',
+                });
             } else if ((window as any).electronAPI?.scanAndImportModels) {
                 // Legacy full scan fallback (not ideal, but keeps old builds working)
                 await (window as any).electronAPI.scanAndImportModels();
@@ -140,7 +164,10 @@ const App: React.FC = () => {
                     file: data.currentPath ?? data.file ?? '',
                     status: data.phase ?? data.status,
                 });
-                const done = data?.phase === 'done' || data?.done === true || (data?.processed >= data?.total && data?.total > 0);
+                const done =
+                    data?.phase === 'done' ||
+                    data?.done === true ||
+                    (data?.processed >= data?.total && data?.total > 0);
                 setScanInProgress(!done);
                 if (done) setTimeout(() => setScanProgress(null), 800);
             };
@@ -162,11 +189,12 @@ const App: React.FC = () => {
                     file: data.file,
                     status: data.status,
                 });
-                setScanInProgress(!(data.done));
+                setScanInProgress(!data.done);
                 if (data.done) setTimeout(() => setScanProgress(null), 800);
             };
             (window as any).electronAPI.onScanProgress(legacyHandler);
-            return () => (window as any).electronAPI?.removeScanProgress?.(legacyHandler);
+            return () =>
+                (window as any).electronAPI?.removeScanProgress?.(legacyHandler);
         }
     }, []);
 
@@ -194,20 +222,21 @@ const App: React.FC = () => {
                     <Sidebar
                         onOpenConfig={handleOpenConfig}
                         onSelectModel={handleSelectModel}
-                        onUpdateScan={handleUpdateScan}   // fallback only; primary call happens in Sidebar via ipcRenderer
+                        onUpdateScan={handleUpdateScan} // fallback only; primary call happens in Sidebar via ipcRenderer
                         search={search}
                         setSearch={setSearch}
                         onTypeFilter={setTypeFilter}
                     />
                     <main className="flex-1 h-full overflow-y-auto p-6 bg-zinc-50 dark:bg-slate-500 transition-colors duration-300">
-                        {loading
-                            ? <Spinner />
-                            : <ModelGrid
+                        {loading ? (
+                            <Spinner />
+                        ) : (
+                            <ModelGrid
                                 onSelectModel={handleSelectModel}
                                 onToggleFavorite={handleToggleFavorite}
                                 models={filteredModels}
                             />
-                        }
+                        )}
                     </main>
                 </div>
 
@@ -234,6 +263,16 @@ const App: React.FC = () => {
     );
 };
 
-export default App;
+/**
+ * Default export wraps the entire app with SettingsProvider (provides app-wide SFW/mask style).
+ * This avoids merged declarations and ensures SettingsProvider receives children.
+ */
+export default function App() {
+    return (
+        <SettingsProvider>
+            <AppContent />
+        </SettingsProvider>
+    );
+}
 
 // END OF FILE: renderer/src/App.tsx

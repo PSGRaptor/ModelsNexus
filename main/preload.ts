@@ -3,6 +3,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+    getUserSettings: () => ipcRenderer.invoke('getUserSettings'),
+    updateUserSettings: (patch: any) => ipcRenderer.invoke('updateUserSettings', patch),
     // Image/Model Metadata
     getImageMetadata: async (path: string) => await ipcRenderer.invoke('get-image-metadata', path),
     selectModelMainImage: async (modelHash: string) => ipcRenderer.invoke('selectModelMainImage', modelHash),

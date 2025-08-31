@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { FixedSizeGrid } from 'react-window';
 import { FaStar, FaRegStar } from 'react-icons/fa';
 import placeholderModel from '../assets/placeholder-model.png';
+import SafeImage from './SafeImage';
 
 export interface ModelInfo {
     model_hash: string;
@@ -103,11 +104,12 @@ const ModelGrid: React.FC<ModelGridProps> = ({ models, onSelectModel, onToggleFa
                 onClick={() => onSelectModel(model.model_hash)}
             >
                 <div className="relative w-full" style={{ height: imageHeight }}>
-                    <img
+                    <SafeImage
                         src={imgSrc}
                         alt={model.file_name}
                         loading="lazy"
                         className="absolute inset-0 w-full h-full object-cover rounded-md"
+                        meta={model}
                         onError={(e) => {
                             const t = e.currentTarget as HTMLImageElement;
                             (t as any).onerror = null;

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTheme, Theme } from '../context/ThemeContext';
+import { useSettings } from '../context/SettingsContext';
 
 type ConfigModalProps = {
     onClose: () => void;
@@ -31,6 +32,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
     const [civitaiKey, setCivitaiKey] = useState('');
     const [huggingfaceKey, setHuggingfaceKey] = useState('');
     const [savingKeys, setSavingKeys] = useState(false);
+    const { settings, setSetting } = useSettings();
 
     const [updating, setUpdating] = useState(false);
     const [updateStatus, setUpdateStatus] = useState<string | null>(null);
@@ -302,6 +304,51 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                         {savingKeys ? 'Saving…' : 'Save API Keys'}
                     </button>
                 </div>
+
+                {/* Privacy & Safety */}
+                <div className="mt-6 border-t border-neutral-200 dark:border-neutral-800 pt-4">
+                    <h3 className="text-base font-semibold mb-3">Privacy &amp; Safety</h3>
+
+                    {/* App-wide SFW toggle */}
+                    <label className="flex items-center justify-between gap-3 mb-4">
+                    <span className="text-sm">
+                        Safe-for-Work Mode
+                        <span className="block text-xs opacity-75">
+                            Hide NSFW images across the entire app. You can click an image to reveal it temporarily.
+                        </span>
+                    </span>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={settings.sfwMode}
+                            onClick={() => setSetting('sfwMode', !settings.sfwMode)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${settings.sfwMode ? 'bg-emerald-500' : 'bg-neutral-400 dark:bg-neutral-700'}`}
+                            title={settings.sfwMode ? 'SFW Mode: On' : 'SFW Mode: Off'}
+                        >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${settings.sfwMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </label>
+
+                    {/* Mask Style selector */}
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm">
+                            Mask Style
+                            <div className="text-xs opacity-75">
+                                Choose how images are obscured while SFW mode is on.
+                            </div>
+                        </div>
+                        <select
+                            value={settings.maskStyle}
+                            onChange={(e) => setSetting('maskStyle', e.target.value as 'blur' | 'pixelate')}
+                            className="min-w-[140px] rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1 text-sm"
+                            title="Select mask style"
+                        >
+                            <option value="blur">Blur (soft)</option>
+                            <option value="pixelate">Pixelate (mosaic)</option>
+                        </select>
+                    </div>
+                </div>
+
 
                 {/* Maintenance */}
                 <div className="mb-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">

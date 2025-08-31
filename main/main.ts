@@ -15,6 +15,7 @@ import { readSdMetadata } from './metadata/sdMetadata.js';
 import { parseA1111Parameters } from './metadata/sdMetadata.js';
 import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
 import { scanNewOrChanged } from './scanner/fastScan.js';
+import { loadSettings, patchSettings } from './settings';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)
 
@@ -727,3 +728,6 @@ ipcMain.handle('addTag', (_e, hash: string, tag: string) => addTag(hash, tag));
 ipcMain.handle('removeTag', (_e, hash: string, tag: string) => removeTag(hash, tag));
 ipcMain.handle('getUseExternalPromptParser', async () => getUseExternalPromptParser());
 ipcMain.handle('setUseExternalPromptParser', async (_e, v: boolean) => setUseExternalPromptParser(!!v));
+ipcMain.handle('getUserSettings', async () => loadSettings());
+ipcMain.handle('updateUserSettings', async (_e, patch: any) => patchSettings(patch ?? {}));
+
