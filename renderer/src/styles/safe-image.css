@@ -1,26 +1,23 @@
-/* renderer/src/styles/safe-image.css */
+/* START OF FILE: renderer/src/styles/safe-image.css */
 
-/* BLUR overlay (high-quality soft blur) */
-.sfw-overlay-blur {
-    backdrop-filter: blur(18px);
-    background-color: rgba(0, 0, 0, 0.25);
+/* Blur uses CSS var for strength; defaults fallback to 12px if var missing */
+.sfw-blur-img {
+    filter: blur(var(--sfw-blur, 12px)) saturate(0.9) brightness(0.96);
 }
 
-/* PIXELATE overlay — uses a mosaic grid to strongly obfuscate content.
-   This is lightweight and consistent across GPUs/browsers. */
+/* Light blur under pixelation */
+.sfw-soft-blur-img {
+    filter: blur(calc(var(--sfw-blur, 12px) / 3)) brightness(0.9);
+}
+
+/* Pixelate overlay uses CSS var for grid cell size */
 .sfw-overlay-pixelate {
-    background-color: rgba(0, 0, 0, 0.35);
+    background-color: rgba(0, 0, 0, 0.32);
     background-image:
-            linear-gradient(0deg, rgba(255,255,255,0.12) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px);
-    background-size: 8px 8px, 8px 8px; /* adjust for chunkiness */
+            linear-gradient(0deg, rgba(255,255,255,0.14) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.14) 1px, transparent 1px);
+    background-size: var(--sfw-grid, 8px) var(--sfw-grid, 8px), var(--sfw-grid, 8px) var(--sfw-grid, 8px);
     background-blend-mode: overlay;
 }
 
-/* Reveal button styling */
-.sfw-reveal-btn {
-    background: rgba(0, 0, 0, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    backdrop-filter: blur(6px);
-    cursor: pointer;
-}
+/* END OF FILE: renderer/src/styles/safe-image.css */

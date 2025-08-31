@@ -1,10 +1,9 @@
 // START OF FILE: renderer/src/components/ModelGrid.tsx
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { FixedSizeGrid } from 'react-window';
+import React, { memo, useMemo } from 'react';
 import { FaStar, FaRegStar } from 'react-icons/fa';
-import placeholderModel from '../assets/placeholder-model.png';
 import SafeImage from './SafeImage';
+import placeholderModel from '../assets/placeholder-model.png';
 
 export interface ModelInfo {
     model_hash: string;
@@ -12,157 +11,143 @@ export interface ModelInfo {
     file_name: string;
     base_model?: string;
     model_type?: string;
-    is_favorite: number;
+    is_favorite?: number | boolean;
+    nsfw?: boolean;
+    tags?: string[];
+    thumbnail_path?: string;
+    main_image_path?: string;
 }
 
-interface ModelGridProps {
+type Props = {
     models: ModelInfo[];
     onSelectModel: (modelHash: string) => void;
     onToggleFavorite: (modelHash: string) => void;
+};
+
+// Normalize to a usable <img src>.
+function toImgSrc(input?: string | null): string | null {
+    if (!input || input.trim() === '') return null;
+    const v = input.trim();
+    if (v.startsWith('http://') || v.startsWith('https://') || v.startsWith('file://')) return v;
+    if (/^[a-zA-Z]:[\\/]/.test(v) || v.startsWith('/')) return `file://${v}`;
+    return v;
 }
 
-const PLACEHOLDER = './images/placeholder-model.png';
+const ModelCard: React.FC<{
+    model: ModelInfo;
+    onSelect: (hash: string) => void;
+    onToggleFav: (hash: string) => void;
+}> = ({ model, onSelect, onToggleFav }) => {
+    const src = useMemo(() => {
+        const primary = toImgSrc(model.cover_image || model.thumbnail_path || model.main_image_path || '');
+        return primary ?? placeholderModel;
+    }, [model.cover_image, model.thumbnail_path, model.main_image_path]);
 
-// Fixed card sizing
-const CARD_W = 320;
-const CARD_H = 450;
-
-// Spacing between cards
-const GAP_X = 10; // horizontal gap
-const GAP_Y = 6;  // vertical gap (reduced)
-
-// Each grid cell = card size + gap
-const CELL_W = CARD_W + GAP_X;
-const CELL_H = CARD_H + GAP_Y;
-
-function useContainerSize<T extends HTMLElement>() {
-    const ref = useRef<T | null>(null);
-    const [size, setSize] = useState({ width: 1200, height: 800 });
-
-    useEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-
-        const update = () => {
-            const rect = el.getBoundingClientRect();
-            setSize({
-                width: Math.max(320, Math.floor(rect.width)),
-                height: Math.max(400, Math.floor(rect.height)),
-            });
-        };
-
-        update();
-        const ro = new ResizeObserver(update);
-        ro.observe(el);
-
-        return () => {
-            try { ro.disconnect(); } catch {}
-        };
-    }, []);
-
-    return { ref, ...size };
-}
-
-const ModelGrid: React.FC<ModelGridProps> = ({ models, onSelectModel, onToggleFavorite }) => {
-    const { ref, width: containerWidth, height: containerHeight } = useContainerSize<HTMLDivElement>();
-
-    const columns = useMemo(
-        () => Math.max(1, Math.floor(containerWidth / CELL_W)),
-        [containerWidth]
+    const isFavorite = Boolean(
+        typeof model.is_favorite === 'number' ? model.is_favorite === 1 : model.is_favorite
     );
-
-    const rowCount = useMemo(
-        () => Math.ceil(models.length / columns),
-        [models.length, columns]
-    );
-
-    const Cell = ({ columnIndex, rowIndex, style }: any) => {
-        const index = rowIndex * columns + columnIndex;
-        const model = models[index];
-        if (!model) return null;
-
-        const imgSrc =
-            model.cover_image
-                ? (model.cover_image.startsWith('file://') ? model.cover_image : `file://${model.cover_image}`)
-                : placeholderModel;
-
-        // Make the image area tall while keeping total card height = 450
-        // We’ll budget roughly: padding (p-3 => 24px vertical), title (~20px), subtitle (~16px), small gaps (~8px)
-        // => image wrapper ≈ 450 - (24 + 20 + 16 + 8) = 382px. We’ll set ~360–380 as a safe value.
-        const imageHeight = 372; // adjust if you tweak text sizes later
-
-        return (
-            <div
-                style={{
-                    ...style,
-                    width: CARD_W,
-                    height: CARD_H,
-                    left: (style.left ?? 0) + GAP_X / 2,
-                    top: (style.top ?? 0) + GAP_Y / 2,
-                }}
-                className="bg-white dark:bg-zinc-800 rounded-lg shadow hover:shadow-lg transition p-3 cursor-pointer overflow-hidden"
-                onClick={() => onSelectModel(model.model_hash)}
-            >
-                <div className="relative w-full" style={{ height: imageHeight }}>
-                    <SafeImage
-                        src={imgSrc}
-                        alt={model.file_name}
-                        loading="lazy"
-                        className="absolute inset-0 w-full h-full object-cover rounded-md"
-                        meta={model}
-                        onError={(e) => {
-                            const t = e.currentTarget as HTMLImageElement;
-                            (t as any).onerror = null;
-                            t.src = placeholderModel;
-                        }}
-                    />
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleFavorite(model.model_hash);
-                        }}
-                        title={model.is_favorite ? 'Unfavorite' : 'Favorite'}
-                        className="absolute top-2 right-2 bg-white dark:bg-zinc-700 p-1 rounded-full shadow-sm"
-                    >
-                        {model.is_favorite ? <FaStar className="text-yellow-400" /> : <FaRegStar className="text-gray-400" />}
-                    </button>
-                </div>
-
-                <h3 className="mt-3 mb-[5px] text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                    {model.file_name}
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {model.base_model || model.model_type || '–'}
-                </p>
-            </div>
-        );
-    };
 
     return (
         <div
-            ref={ref}
-            className="p-4"
-            style={{
-                width: '100%',
-                height: '100%',
-                minHeight: 500,
-                boxSizing: 'border-box',
+            className="group relative rounded-lg border border-zinc-200 dark:border-zinc-700 shadow-sm bg-white dark:bg-zinc-900 overflow-hidden hover:shadow-md transition"
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect(model.model_hash)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') onSelect(model.model_hash);
             }}
         >
-            <FixedSizeGrid
-                columnCount={columns}
-                columnWidth={CELL_W}
-                height={containerHeight}
-                rowCount={rowCount}
-                rowHeight={CELL_H}
-                width={containerWidth}
+            {/* IMAGE AREA — fixed 3:4 portrait box (prevents 0px issues, consistent sizing) */}
+            <div
+                className="relative w-full bg-zinc-100 dark:bg-zinc-800"
+                style={{ paddingTop: '133.333%' }} // 3:4 aspect => height = 4/3 * width
             >
-                {Cell}
-            </FixedSizeGrid>
+                {/* Absolutely fill the box, like your original layout */}
+                <div className="absolute inset-0">
+                    <SafeImage
+                        src={src || placeholderModel}
+                        alt={model.file_name}
+                        className="w-full h-full object-cover"
+                        meta={model}
+                        // withOverlay enables mosaic overlay for pixelate mode
+                        withOverlay={true}
+                        onError={(e) => {
+                            const t = e.currentTarget as HTMLImageElement;
+                            if (t.src !== placeholderModel) {
+                                (t as any).onerror = null;
+                                t.src = placeholderModel;
+                            }
+                        }}
+                    />
+                </div>
+
+                {/* Favorite star */}
+                <button
+                    type="button"
+                    className="absolute top-2 right-2 z-40 p-1.5 rounded-full bg-black/45 hover:bg-black/60 text-white"
+                    title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFav(model.model_hash);
+                    }}
+                >
+                    {isFavorite ? <FaStar className="h-4 w-4" /> : <FaRegStar className="h-4 w-4" />}
+                </button>
+            </div>
+
+            {/* Meta */}
+            <div className="p-3">
+                <div className="text-sm font-semibold truncate text-zinc-900 dark:text-zinc-100" title={model.file_name}>
+                    {model.file_name}
+                </div>
+                <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-300 flex gap-2">
+                    {model.model_type && (
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800">
+              {model.model_type}
+            </span>
+                    )}
+                    {model.base_model && (
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800">
+              {model.base_model}
+            </span>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
 
-export default ModelGrid;
+const ModelGrid: React.FC<Props> = ({ models, onSelectModel, onToggleFavorite }) => {
+    if (!models || models.length === 0) {
+        return (
+            <div className="text-sm text-zinc-600 dark:text-zinc-300 px-2 py-6">
+                No models found. Try changing your filters or run a scan.
+            </div>
+        );
+    }
+
+    return (
+        <div
+            className="
+        grid gap-4
+        sm:grid-cols-2
+        md:grid-cols-3
+        lg:grid-cols-4
+        2xl:grid-cols-6
+      "
+        >
+            {models.map((m) => (
+                <ModelCard
+                    key={m.model_hash}
+                    model={m}
+                    onSelect={onSelectModel}
+                    onToggleFav={onToggleFavorite}
+                />
+            ))}
+        </div>
+    );
+};
+
+export default memo(ModelGrid);
 
 // END OF FILE: renderer/src/components/ModelGrid.tsx

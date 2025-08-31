@@ -15,7 +15,7 @@ import { readSdMetadata } from './metadata/sdMetadata.js';
 import { parseA1111Parameters } from './metadata/sdMetadata.js';
 import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
 import { scanNewOrChanged } from './scanner/fastScan.js';
-import { loadSettings, patchSettings } from './settings';
+import { loadSettings, patchSettings } from './settings.js';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)
 

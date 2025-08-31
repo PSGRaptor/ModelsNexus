@@ -13,7 +13,10 @@ export type MaskStyle = 'blur' | 'pixelate';
 type Settings = {
     sfwMode: boolean;
     maskStyle: MaskStyle;
-    // Allow pass-through for future keys
+    maskAll: boolean;
+    maskUnknown: boolean;
+    blurAmount: number; // px
+    pixelGrid: number;  // px
     [k: string]: any;
 };
 
@@ -25,19 +28,12 @@ type Ctx = {
 
 const SettingsContext = createContext<Ctx | null>(null);
 
-/**
- * Safe helpers that don't rely on strict window.electronAPI typing.
- * They also fall back to ipcRenderer.invoke if the preload bridge
- * hasn't been updated yet.
- */
 async function invokeGetUserSettings(): Promise<Partial<Settings> | undefined> {
     const anyWin = window as any;
     try {
-        // Prefer the preload bridge if present
         if (anyWin.electronAPI?.getUserSettings) {
             return await anyWin.electronAPI.getUserSettings();
         }
-        // Fallback: direct ipcRenderer (if exposed)
         if (anyWin.electron?.ipcRenderer?.invoke) {
             return await anyWin.electron.ipcRenderer.invoke('getUserSettings');
         }
@@ -68,6 +64,10 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
     const [settings, setSettings] = useState<Settings>({
         sfwMode: true,
         maskStyle: 'blur',
+        maskAll: false,
+        maskUnknown: false,
+        blurAmount: 12,
+        pixelGrid: 8,
     });
 
     const refresh = async () => {
@@ -86,7 +86,6 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         if (next && typeof next === 'object') {
             setSettings((prev) => ({ ...prev, ...next }));
         } else {
-            // If the bridge isn't ready yet, still update local state
             setSettings((prev) => ({ ...prev, [key]: value }));
         }
     };

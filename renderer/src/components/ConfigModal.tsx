@@ -307,45 +307,114 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
 
                 {/* Privacy & Safety */}
                 <div className="mt-6 border-t border-neutral-200 dark:border-neutral-800 pt-4">
-                    <h3 className="text-base font-semibold mb-3">Privacy &amp; Safety</h3>
+                    <h3 className="font-semibold mb-2 text-zinc-700 dark:text-zinc-200">Privacy &amp; Safety</h3>
 
                     {/* App-wide SFW toggle */}
-                    <label className="flex items-center justify-between gap-3 mb-4">
-                    <span className="text-sm">
-                        Safe-for-Work Mode
-                        <span className="block text-xs opacity-75">
-                            Hide NSFW images across the entire app. You can click an image to reveal it temporarily.
+                    {/* SFW toggle */}
+                    <label className="flex items-center justify-between gap-3 mb-3">
+                        <span className="text-sm text-zinc-500 dark:text-zinc-300">
+                                Safe-for-Work Mode
+                            <span className="block text-xs opacity-75 dark:text-zinc-300">
+                                Blur/pixelate images across the app. Toggle applies instantly.
+                            </span>
                         </span>
-                    </span>
                         <button
                             type="button"
                             role="switch"
                             aria-checked={settings.sfwMode}
                             onClick={() => setSetting('sfwMode', !settings.sfwMode)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${settings.sfwMode ? 'bg-emerald-500' : 'bg-neutral-400 dark:bg-neutral-700'}`}
-                            title={settings.sfwMode ? 'SFW Mode: On' : 'SFW Mode: Off'}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition
+                            ${settings.sfwMode ? 'bg-emerald-500' : 'bg-neutral-400 dark:bg-neutral-700'}`}
                         >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${settings.sfwMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition
+                                ${settings.sfwMode ? 'translate-x-6' : 'translate-x-1'}`}
+                            />
                         </button>
                     </label>
 
-                    {/* Mask Style selector */}
+                    {/* Mask everything in SFW */}
+                    <label className="flex items-center justify-between gap-3 mb-4">
+                        <span className="text-sm text-zinc-500 dark:text-zinc-300">
+                          Mask everything in SFW
+                          <span className="block text-xs opacity-75 dark:text-zinc-300">
+                            When enabled, all images are obscured while SFW is on (ensures immediate effect).
+                          </span>
+                        </span>
+                        <input
+                            type="checkbox"
+                            checked={!!settings.maskAll}
+                            onChange={(e) => setSetting('maskAll', e.target.checked)}
+                            className="h-4 w-4 accent-emerald-500"
+                        />
+                    </label>
+
+                    {/* Mask style */}
                     <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm">
-                            Mask Style
-                            <div className="text-xs opacity-75">
-                                Choose how images are obscured while SFW mode is on.
-                            </div>
+                        <div className="text-sm text-zinc-500 dark:text-zinc-300">
+                            Mask style
+                            <div className="text-xs opacity-75 dark:text-zinc-300">Choose Blur or Pixelate.</div>
                         </div>
                         <select
                             value={settings.maskStyle}
                             onChange={(e) => setSetting('maskStyle', e.target.value as 'blur' | 'pixelate')}
-                            className="min-w-[140px] rounded-md border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1 text-sm"
-                            title="Select mask style"
+                            className="min-w-[140px] rounded-md border border-neutral-300 dark:border-neutral-700 dark:text-zinc-300 bg-transparent px-2 py-1 text-sm"
                         >
                             <option value="blur">Blur (soft)</option>
                             <option value="pixelate">Pixelate (mosaic)</option>
                         </select>
+                    </div>
+                    {/* SFW behavior fine-tuning */}
+                    <div className="mt-4 space-y-3">
+                        {/* Mask unknown images */}
+                        <label className="flex items-center justify-between gap-3">
+                            <span className="text-sm text-zinc-900 dark:text-zinc-100">
+                              Mask unknown images
+                              <span className="block text-xs opacity-75 text-zinc-900 dark:text-zinc-100">
+                                When on, images without NSFW metadata are masked while SFW is on.
+                              </span>
+                            </span>
+                            <input
+                                type="checkbox"
+                                checked={!!settings.maskUnknown}
+                                onChange={(e) => setSetting('maskUnknown', e.target.checked)}
+                                className="h-4 w-4 accent-emerald-500"
+                            />
+                        </label>
+
+                        {/* Blur strength */}
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm text-zinc-900 dark:text-zinc-100">
+                                Blur strength
+                                <div className="text-xs opacity-75 text-zinc-900 dark:text-zinc-100">Adjust the blur radius in pixels.</div>
+                            </div>
+                            <input
+                                type="range"
+                                min={6}
+                                max={24}
+                                step={1}
+                                value={Number(settings.blurAmount ?? 12)}
+                                onChange={(e) => setSetting('blurAmount', Number(e.target.value))}
+                                className="w-40"
+                            />
+                        </div>
+
+                        {/* Pixel grid size */}
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm text-zinc-900 dark:text-zinc-100">
+                                Pixel grid size
+                                <div className="text-xs opacity-75 text-zinc-900 dark:text-zinc-100">Cell size for mosaic pixelation (px).</div>
+                            </div>
+                            <input
+                                type="range"
+                                min={6}
+                                max={16}
+                                step={1}
+                                value={Number(settings.pixelGrid ?? 8)}
+                                onChange={(e) => setSetting('pixelGrid', Number(e.target.value))}
+                                className="w-40"
+                            />
+                        </div>
                     </div>
                 </div>
 

@@ -563,7 +563,7 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                         <SafeImage
                             src={(isEditing ? editImages : images)[modalImageIdx]!}
                             alt="full"
-                            className="max-h-[90vh] max-w-[90vw] rounded shadow-lg"
+                            className="max-h-[90vh] max-w-[90vw] rounded shadow-lg mx-auto block"
                             meta={{ fileName: (isEditing ? editImages : images)[modalImageIdx]! }}
                         />
                         <button className="absolute right-4 text-3xl text-white" onClick={e=>{e.stopPropagation();setModalImageIdx(i=>(i!< (isEditing?editImages:images).length-1?i!+1:0));}}>
