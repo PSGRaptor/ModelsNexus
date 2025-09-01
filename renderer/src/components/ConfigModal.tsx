@@ -368,12 +368,12 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onClose }) => {
                     <div className="mt-4 space-y-3">
                         {/* Mask unknown images */}
                         <label className="flex items-center justify-between gap-3">
-                            <span className="text-sm text-zinc-900 dark:text-zinc-100">
+                            <div className="text-sm text-zinc-900 dark:text-zinc-100">
                               Mask unknown images
-                              <span className="block text-xs opacity-75 text-zinc-900 dark:text-zinc-100">
+                              <div className="block text-xs opacity-75 text-zinc-900 dark:text-zinc-100">
                                 When on, images without NSFW metadata are masked while SFW is on.
-                              </span>
-                            </span>
+                              </div>
+                            </div>
                             <input
                                 type="checkbox"
                                 checked={!!settings.maskUnknown}

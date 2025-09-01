@@ -30,9 +30,11 @@ function assessNSFW(meta?: any): NsfwAssessment {
     if (v === 'none' || v === 'safe') return { isNSFW: false, known: true };
     if (['soft', 'mature', 'explicit', 'nsfw', 'r18'].includes(v)) return { isNSFW: true, known: true };
 
-    // Tags heuristics
+    // Tags heuristics (relaxed)
+// - Removed 'sexy' and 'adult' to avoid over-triggering on SFW previews.
+// - Focus on clearly explicit markers only.
     const tags: string[] = Array.isArray(meta.tags) ? meta.tags : [];
-    if (tags.some((t) => /nsfw|explicit|nudity|porn|adult|sexy|r-?18/i.test(t))) {
+    if (tags.some((t) => /\b(nsfw|explicit|nudity|porn|r-?18|age[-\s]?restricted|uncensored)\b/i.test(t))) {
         return { isNSFW: true, known: true };
     }
 
