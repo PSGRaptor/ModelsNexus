@@ -16,6 +16,8 @@ import { parseA1111Parameters } from './metadata/sdMetadata.js';
 import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
 import { scanNewOrChanged } from './scanner/fastScan.js';
 import { loadSettings, patchSettings } from './settings.js';
+import { loadIndex, setModelNSFW, setImageNSFW, mergeNSFWBatch } from './nsfw-index.js';
+import { registerNsfwIpc } from './ipc-nsfw.js';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)
 
@@ -346,9 +348,9 @@ function createMainWindow() {
 }
 
 
-// Electron app events
-app.on('ready', async () => {
-    // getPromptViewerWindow();
+// Electron use this space here for app.whenReady events
+app.whenReady().then(async () => {
+    registerNsfwIpc();
     startPromptReader();
 
     try {
@@ -730,4 +732,3 @@ ipcMain.handle('getUseExternalPromptParser', async () => getUseExternalPromptPar
 ipcMain.handle('setUseExternalPromptParser', async (_e, v: boolean) => setUseExternalPromptParser(!!v));
 ipcMain.handle('getUserSettings', async () => loadSettings());
 ipcMain.handle('updateUserSettings', async (_e, patch: any) => patchSettings(patch ?? {}));
-

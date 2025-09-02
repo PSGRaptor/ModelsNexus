@@ -54,6 +54,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPromptMetadata: (imagePath: string) => ipcRenderer.invoke('getPromptMetadata', imagePath),
     scanNewOrChanged: async (roots?: string[]) => ipcRenderer.invoke('scanNewOrChanged', roots),
 
+    // NSFW/SFW
+    nsfwGetIndex: () => ipcRenderer.invoke('nsfw:getIndex'),
+    nsfwSetModel: (hash: string, value: boolean) => ipcRenderer.invoke('nsfw:setModel', hash, value),
+    nsfwSetImage: (src: string, value: boolean) => ipcRenderer.invoke('nsfw:setImage', src, value),
+    nsfwMerge: (batch: { models?: { hash: string; nsfw: boolean }[]; images?: { src: string; nsfw: boolean }[] }) =>
+        ipcRenderer.invoke('nsfw:merge', batch),
+
+
     scanFullRebuild: (scanRoots: string[]) =>
         ipcRenderer.invoke('scan:fullRebuild', scanRoots),
 

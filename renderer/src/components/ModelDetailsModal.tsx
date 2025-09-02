@@ -1,9 +1,11 @@
-// File: renderer/src/components/ModelDetailsModal.tsx
+// START OF FILE: renderer/src/components/ModelDetailsModal.tsx
 
-import React, { useEffect, useState, ChangeEvent, DragEvent } from 'react';
+import React, { useEffect, useMemo, useState, DragEvent } from 'react';
 import PromptViewerModal from './PromptViewerModal';
 import placeholderModel from '../assets/placeholder-model.png';
 import SafeImage from './SafeImage';
+import useNsfwIndex from '../hooks/useNsfwIndex';
+import { classifyAndIndexImage } from '../lib/nsfwDetect';
 
 import {
     FaExternalLinkAlt,
@@ -21,6 +23,33 @@ const MODEL_TYPES = [
     'Safetensors', 'Lora', 'PT', 'GGUF'
 ];
 
+// ---------------- NSFW key helpers (avoid misses from file:// / slashes) ---------------
+function normalizeKey(src: string): string {
+    if (!src) return '';
+    const raw = src.startsWith('file://') ? src.slice(7) : src;
+    return decodeURIComponent(raw).replace(/\\/g, '/');
+}
+
+function resolveImageFlag(
+    getImage: (k: string) => boolean | undefined,
+    src?: string
+): boolean | undefined {
+    if (!src) return undefined;
+    const norm = normalizeKey(src);
+    const variants = new Set<string>([
+        src,
+        src.startsWith('file://') ? src.slice(7) : `file://${src}`,
+        norm,
+        norm.toLowerCase(),
+    ]);
+    for (const v of variants) {
+        const hit = getImage(v);
+        if (typeof hit === 'boolean') return hit;
+    }
+    return undefined;
+}
+// --------------------------------------------------------------------------------------
+
 // Helpers
 function getFileName(path: string): string {
     const parts = path.split(/[/\\]/);
@@ -31,6 +60,27 @@ function defaultRename(name: string): string {
     const base = i >= 0 ? name.slice(0, i) : name;
     const ext = i >= 0 ? name.slice(i) : '';
     return `${base}_${Date.now()}${ext}`;
+}
+
+function isImageNSFW(img: any): boolean {
+    if (!img) return false;
+    for (const key of ['nsfw', 'is_nsfw', 'unsafe', 'sfw']) {
+        if (typeof img[key] === 'boolean') {
+            if (key === 'sfw') return img.sfw === false;
+            return Boolean(img[key]);
+        }
+    }
+    const s = String(img.nsfw ?? img.rating ?? img.safety ?? img.content_rating ?? '')
+        .toLowerCase()
+        .trim();
+    if (/(explicit|mature|nsfw|r-?18|xxx|18\+)/.test(s)) return true;
+    if (s === 'none' || s === 'safe') return false;
+
+    const tags: string[] = Array.isArray(img.tags) ? img.tags : [];
+    if (tags.some((t) => /\b(explicit|nudity|porn|nsfw|r-?18|uncensored)\b/i.test(String(t)))) {
+        return true;
+    }
+    return false;
 }
 
 interface AddedFile {
@@ -74,6 +124,12 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
     const [promptModalOpen, setPromptModalOpen] = useState(false);
     const [currentPromptPath, setCurrentPromptPath] = useState<string | null>(null);
 
+    // ✅ NSFW index hook (fixes TS2552: nsfwIndex)
+    const nsfwIndex = useNsfwIndex();
+
+    // ✅ Image context menu state (fixes TS2304: imgMenu / setImgMenu)
+    const [imgMenu, setImgMenu] = useState<null | { x: number; y: number; src: string }>(null);
+
     // Add local paths from native dialog
     const addLocalFiles = (paths: string[]) => {
         const entries = paths.map(p => ({
@@ -91,6 +147,31 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         setAddedFiles(af => [...af, { file, saveName, url }]);
         setEditImages(imgs => [...imgs, url]);
     };
+
+    // NSFW (model-level)
+    const nsfwFromIndex = nsfwIndex.getModel(model?.model_hash);
+    const nsfwFromFields =
+        (typeof (model as any)?.nsfw === 'boolean' && (model as any).nsfw) ||
+        (String((model as any)?.rating ?? (model as any)?.safety ?? '')
+            .toLowerCase()
+            .match(/explicit|nsfw|r-?18|xxx|18\+/) != null) ||
+        undefined;
+
+    // IMPORTANT: tri-state hint — only TRUE when we *know* it’s NSFW; otherwise undefined
+    const nsfwHintModel = [nsfwFromIndex, nsfwFromFields].some((v) => v === true) ? true : undefined;
+
+    useEffect(() => {
+        if (!imgMenu) return;
+        const close = () => setImgMenu(null);
+        const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setImgMenu(null); };
+        window.addEventListener('click', close, { capture: true });
+        // Do NOT close on 'contextmenu' or it will vanish immediately.
+        window.addEventListener('keydown', onEsc);
+        return () => {
+            window.removeEventListener('click', close, { capture: true } as any);
+            window.removeEventListener('keydown', onEsc);
+        };
+    }, [imgMenu]);
 
     // Load model details
     useEffect(() => {
@@ -260,6 +341,13 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: html }} />
     );
 
+    // Active image src for full-viewer
+    const activeSrc = useMemo(() => {
+        if (modalImageIdx === null) return undefined;
+        const arr = isEditing ? editImages : images;
+        return arr[modalImageIdx];
+    }, [modalImageIdx, isEditing, editImages, images]);
+
     return (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
             <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-5xl min-w-[800px] p-8 max-h-[94vh] overflow-y-auto relative">
@@ -323,12 +411,22 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 alt="Main"
                                 className="max-h-40 rounded shadow border"
                                 meta={model}
+                                nsfwHint={resolveImageFlag(nsfwIndex.getImage, model.main_image_path) === true ? true : undefined}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setImgMenu({ x: e.clientX, y: e.clientY, src: model.main_image_path });
+                                }}
                             />
                         ) : (
                             <SafeImage
                                 src={placeholderModel}
                                 alt="Placeholder"
                                 className="max-h-40 w-full object-contain rounded shadow border bg-gray-100 dark:bg-zinc-800"
+                                nsfwHint={nsfwHintModel}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setImgMenu({ x: e.clientX, y: e.clientY, src: placeholderModel });
+                                }}
                             />
                         )}
                     </div>
@@ -370,7 +468,12 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                                 className="rounded shadow cursor-pointer bg-zinc-100 dark:bg-zinc-800"
                                                 onClick={() => setModalImageIdx(idx)}
                                                 draggable={false}
-                                                meta={{ fileName: img }}   // lets SafeImage check filename for NSFW hints
+                                                meta={{ fileName: img }}
+                                                nsfwHint={resolveImageFlag(nsfwIndex.getImage, img) === true ? true : undefined}
+                                                onContextMenu={(e) => {
+                                                    e.preventDefault();
+                                                    setImgMenu({ x: e.clientX, y: e.clientY, src: img });
+                                                }}
                                             />
                                             {isEditing && (
                                                 <button
@@ -546,7 +649,7 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 onChange={e=>setEditNote(e.target.value)}
                             />
                         ) : userNote.trim().startsWith('<') ? (
-                            renderHtml(userNote)
+                            <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: userNote }} />
                         ) : (
                             <pre className="whitespace-pre-wrap text-gray-900 dark:text-gray-100">{userNote||'<No notes>'}</pre>
                         )}
@@ -555,25 +658,52 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
 
                 {/* Full-size image carousel modal */}
                 {modalImageIdx !== null && (
-                    <div className="fixed inset-0 bg-black/75 flex items-center justify-center" onClick={()=>setModalImageIdx(null)}>
+                    <div
+                        className="fixed inset-0 bg-black/75 flex items-center justify-center"
+                        onClick={()=>setModalImageIdx(null)}
+                    >
                         <button className="absolute top-4 right-4 text-2xl text-white"><FaTimes/></button>
-                        <button className="absolute left-4 text-3xl text-white" onClick={e=>{e.stopPropagation();setModalImageIdx(i=>(i!>0?i!-1: (isEditing?editImages:images).length-1));}}>
+                        <button
+                            className="absolute left-4 text-3xl text-white"
+                            onClick={e=>{
+                                e.stopPropagation();
+                                setModalImageIdx(i=>(i!>0?i!-1: (isEditing?editImages:images).length-1));
+                            }}
+                        >
                             <FaChevronLeft/>
                         </button>
-                        <SafeImage
-                            src={(isEditing ? editImages : images)[modalImageIdx]!}
-                            alt="full"
-                            className="max-h-[90vh] max-w-[90vw] rounded shadow-lg mx-auto block"
-                            meta={{ fileName: (isEditing ? editImages : images)[modalImageIdx]! }}
-                        />
-                        <button className="absolute right-4 text-3xl text-white" onClick={e=>{e.stopPropagation();setModalImageIdx(i=>(i!< (isEditing?editImages:images).length-1?i!+1:0));}}>
+
+                        {activeSrc && (
+                            <SafeImage
+                                src={activeSrc}
+                                alt="full"
+                                className="max-h-[90vh] max-w-[90vw] rounded shadow-lg mx-auto block"
+                                meta={{ fileName: activeSrc }}
+                                nsfwHint={resolveImageFlag(nsfwIndex.getImage, activeSrc) === true ? true : undefined}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setImgMenu({ x: e.clientX, y: e.clientY, src: activeSrc });
+                                }}
+                            />
+                        )}
+
+                        <button
+                            className="absolute right-4 text-3xl text-white"
+                            onClick={e=>{
+                                e.stopPropagation();
+                                setModalImageIdx(i=>(i!< (isEditing?editImages:images).length-1?i!+1:0));
+                            }}
+                        >
                             <FaChevronRight/>
                         </button>
+
                         {/* Prompt Viewer action */}
                         <button
                             onClick={() => {
                                 const selected = (isEditing ? editImages : images)[modalImageIdx];
-                                setCurrentPromptPath(selected.startsWith('file://') ? selected : `file://${selected}`);
+                                const p = selected.startsWith('file://') ? selected : `file://${selected}`;
+                                setCurrentPromptPath(p);
                                 setPromptModalOpen(true);
                             }}
                             className="absolute bottom-4 right-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -627,9 +757,91 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                         }}
                     />
                 )}
+
+                {/* Right-click image context menu (tiny inline, no CSS/layout changes) */}
+                {imgMenu && (
+                    <div
+                        style={{
+                            position: 'fixed',
+                            top: imgMenu.y,
+                            left: imgMenu.x,
+                            zIndex: 9999,
+                            background: document.documentElement.classList.contains('dark') ? '#111827' : '#ffffff',
+                            color: document.documentElement.classList.contains('dark') ? '#E5E7EB' : '#111827',
+                            border: document.documentElement.classList.contains('dark')
+                                ? '1px solid rgba(255,255,255,0.12)'
+                                : '1px solid rgba(0,0,0,0.12)',
+                            borderRadius: 8,
+                            boxShadow: document.documentElement.classList.contains('dark')
+                                ? '0 8px 24px rgba(0,0,0,0.55)'
+                                : '0 8px 24px rgba(0,0,0,0.18)',
+                            overflow: 'hidden',
+                            minWidth: 160
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        onContextMenu={(e) => e.preventDefault()}
+                    >
+                        <button
+                            style={{ display: 'block', width: '100%', padding: '8px 12px', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13 }}
+                            onClick={async () => {
+                                await nsfwIndex.markImage(normalizeKey(imgMenu.src), true);
+                                await nsfwIndex.refresh();
+                                setImgMenu(null);
+                            }}
+                        >
+                            Mark image as NSFW
+                        </button>
+                        <button
+                            style={{
+                                display: 'block',
+                                width: '100%',
+                                padding: '8px 12px',
+                                textAlign: 'left',
+                                border: 'none',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                fontSize: 13,
+                                borderTop: document.documentElement.classList.contains('dark')
+                                    ? '1px solid rgba(255,255,255,0.06)'
+                                    : '1px solid rgba(0,0,0,0.06)'
+                            }}
+                            onClick={async () => {
+                                await nsfwIndex.markImage(normalizeKey(imgMenu.src), false);
+                                await nsfwIndex.refresh();
+                                setImgMenu(null);
+                            }}
+                        >
+                            Mark image as SFW
+                        </button>
+                        <button
+                            style={{
+                                display: 'block',
+                                width: '100%',
+                                padding: '8px 12px',
+                                textAlign: 'left',
+                                border: 'none',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                fontSize: 13,
+                                borderTop: document.documentElement.classList.contains('dark')
+                                    ? '1px solid rgba(255,255,255,0.06)'
+                                    : '1px solid rgba(0,0,0,0.06)'
+                            }}
+                            onClick={async () => {
+                                await classifyAndIndexImage(imgMenu.src);
+                                await nsfwIndex.refresh();
+                                setImgMenu(null);
+                            }}
+                        >
+                            Auto-detect NSFW (this image)
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
 };
 
 export default ModelDetailsModal;
+
+// END OF FILE: renderer/src/components/ModelDetailsModal.tsx
