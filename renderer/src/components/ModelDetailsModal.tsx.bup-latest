@@ -6,6 +6,7 @@ import placeholderModel from '../assets/placeholder-model.png';
 import SafeImage from './SafeImage';
 import useNsfwIndex from '../hooks/useNsfwIndex';
 import { classifyAndIndexImage } from '../lib/nsfwDetect';
+
 import {
     FaExternalLinkAlt,
     FaChevronLeft,
@@ -17,14 +18,18 @@ import {
     FaTrash
 } from 'react-icons/fa';
 
-const MODEL_TYPES = ['SD1','SDXL','PONY','FLUX','HiDream','WAN','Safetensors','Lora','PT','GGUF'];
+const MODEL_TYPES = [
+    'SD1', 'SDXL', 'PONY', 'FLUX', 'HiDream', 'WAN',
+    'Safetensors', 'Lora', 'PT', 'GGUF'
+];
 
-// ---------- NSFW helpers ----------
+// ---------------- NSFW key helpers (avoid misses from file:// / slashes) ---------------
 function normalizeKey(src: string): string {
     if (!src) return '';
     const raw = src.startsWith('file://') ? src.slice(7) : src;
     return decodeURIComponent(raw).replace(/\\/g, '/');
 }
+
 function resolveImageFlag(
     getImage: (k: string) => boolean | undefined,
     src?: string
@@ -43,8 +48,9 @@ function resolveImageFlag(
     }
     return undefined;
 }
-// -----------------------------------
+// --------------------------------------------------------------------------------------
 
+// Helpers
 function getFileName(path: string): string {
     const parts = path.split(/[/\\]/);
     return parts[parts.length - 1];
@@ -54,6 +60,27 @@ function defaultRename(name: string): string {
     const base = i >= 0 ? name.slice(0, i) : name;
     const ext = i >= 0 ? name.slice(i) : '';
     return `${base}_${Date.now()}${ext}`;
+}
+
+function isImageNSFW(img: any): boolean {
+    if (!img) return false;
+    for (const key of ['nsfw', 'is_nsfw', 'unsafe', 'sfw']) {
+        if (typeof img[key] === 'boolean') {
+            if (key === 'sfw') return img.sfw === false;
+            return Boolean(img[key]);
+        }
+    }
+    const s = String(img.nsfw ?? img.rating ?? img.safety ?? img.content_rating ?? '')
+        .toLowerCase()
+        .trim();
+    if (/(explicit|mature|nsfw|r-?18|xxx|18\+)/.test(s)) return true;
+    if (s === 'none' || s === 'safe') return false;
+
+    const tags: string[] = Array.isArray(img.tags) ? img.tags : [];
+    if (tags.some((t) => /\b(explicit|nudity|porn|nsfw|r-?18|uncensored)\b/i.test(String(t)))) {
+        return true;
+    }
+    return false;
 }
 
 interface AddedFile {
@@ -67,12 +94,14 @@ interface ModelDetailsModalProps {
 }
 
 const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClose }) => {
+    // Display state
     const [model, setModel] = useState<any>(null);
     const [images, setImages] = useState<string[]>([]);
     const [userNote, setUserNote] = useState<string>('');
     const [tags, setTags] = useState<string[]>([]);
     const [apiEnriching, setApiEnriching] = useState<boolean>(false);
 
+    // Edit state
     const [isEditing, setIsEditing] = useState(false);
     const [editFields, setEditFields] = useState<any>({});
     const [editTags, setEditTags] = useState<string[]>([]);
@@ -81,11 +110,13 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
     const [editImages, setEditImages] = useState<string[]>([]);
     const [addedFiles, setAddedFiles] = useState<AddedFile[]>([]);
 
+    // Drag/drop & conflicts
     const [isDragActive, setIsDragActive] = useState(false);
     const [pendingFiles, setPendingFiles] = useState<File[]>([]);
     const [conflictFile, setConflictFile] = useState<AddedFile | null>(null);
     const [renameValue, setRenameValue] = useState<string>('');
 
+    // Nested modals
     const [modalImageIdx, setModalImageIdx] = useState<number | null>(null);
     const [showOnlineUrl, setShowOnlineUrl] = useState<string | null>(null);
     const [notesExpanded, setNotesExpanded] = useState(false);
@@ -93,15 +124,56 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
     const [promptModalOpen, setPromptModalOpen] = useState(false);
     const [currentPromptPath, setCurrentPromptPath] = useState<string | null>(null);
 
+    // ✅ NSFW index hook (fixes TS2552: nsfwIndex)
     const nsfwIndex = useNsfwIndex();
 
-    // ✅ Local overrides for instant blur in the modal as well
-    const [localImageFlags, setLocalImageFlags] = useState<Record<string, boolean>>({});
-    const [localModelFlag, setLocalModelFlag] = useState<boolean | undefined>(undefined);
+    // ✅ Image context menu state (fixes TS2304: imgMenu / setImgMenu)
+    const [imgMenu, setImgMenu] = useState<null | { x: number; y: number; src: string }>(null);
 
-    const setLocalImage = (src: string, value: boolean) =>
-        setLocalImageFlags((prev) => ({ ...prev, [normalizeKey(src)]: value }));
+    // Add local paths from native dialog
+    const addLocalFiles = (paths: string[]) => {
+        const entries = paths.map(p => ({
+            file: { path: p },
+            saveName: getFileName(p),
+            url: p.startsWith('file://') ? p : `file://${p}`
+        }));
+        setAddedFiles(af => [...af, ...entries]);
+        setEditImages(imgs => [...imgs, ...entries.map(e => e.url)]);
+    };
 
+    // Add dropped File objects
+    const safeAddFile = (file: File, saveName: string) => {
+        const url = URL.createObjectURL(file);
+        setAddedFiles(af => [...af, { file, saveName, url }]);
+        setEditImages(imgs => [...imgs, url]);
+    };
+
+    // NSFW (model-level)
+    const nsfwFromIndex = nsfwIndex.getModel(model?.model_hash);
+    const nsfwFromFields =
+        (typeof (model as any)?.nsfw === 'boolean' && (model as any).nsfw) ||
+        (String((model as any)?.rating ?? (model as any)?.safety ?? '')
+            .toLowerCase()
+            .match(/explicit|nsfw|r-?18|xxx|18\+/) != null) ||
+        undefined;
+
+    // IMPORTANT: tri-state hint — only TRUE when we *know* it’s NSFW; otherwise undefined
+    const nsfwHintModel = [nsfwFromIndex, nsfwFromFields].some((v) => v === true) ? true : undefined;
+
+    useEffect(() => {
+        if (!imgMenu) return;
+        const close = () => setImgMenu(null);
+        const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setImgMenu(null); };
+        window.addEventListener('click', close, { capture: true });
+        // Do NOT close on 'contextmenu' or it will vanish immediately.
+        window.addEventListener('keydown', onEsc);
+        return () => {
+            window.removeEventListener('click', close, { capture: true } as any);
+            window.removeEventListener('keydown', onEsc);
+        };
+    }, [imgMenu]);
+
+    // Load model details
     useEffect(() => {
         (async () => {
             const imgs = (await window.electronAPI.getModelImages(modelHash)).filter(Boolean);
@@ -115,6 +187,7 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         setIsEditing(false);
     }, [modelHash]);
 
+    // Enrich
     const handleEnrich = async () => {
         setApiEnriching(true);
         await window.electronAPI.enrichModelFromAPI(modelHash);
@@ -126,6 +199,7 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         }
     };
 
+    // Start & cancel editing
     const handleStartEdit = () => {
         setEditFields({
             model_name: model?.model_name || model?.file_name || '',
@@ -133,7 +207,7 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
             base_model: model?.base_model || '',
             version: model?.version || '',
             prompt_positive: model?.prompt_positive || '',
-            prompt_negative: model?.prompt_negative || '',
+            prompt_negative: model?.prompt_negative || ''
         });
         setEditTags([...tags]);
         setNewTag('');
@@ -149,12 +223,14 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         setConflictFile(null);
     };
 
+    // Drag & drop
     const handleDrop = (e: DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         setIsDragActive(false);
         setPendingFiles(Array.from(e.dataTransfer.files));
     };
 
+    // Conflict resolution
     useEffect(() => {
         if (!pendingFiles.length || conflictFile) return;
         const newAdded: AddedFile[] = [];
@@ -163,8 +239,8 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         for (const f of pendingFiles) {
             const existing = new Set([
                 ...images.map(getFileName),
-                ...addedFiles.map((a) => a.saveName),
-                ...newAdded.map((a) => a.saveName),
+                ...addedFiles.map(a => a.saveName),
+                ...newAdded.map(a => a.saveName)
             ]);
             if (existing.has(f.name)) {
                 leftover = pendingFiles.slice(pendingFiles.indexOf(f) + 1);
@@ -178,38 +254,41 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         }
 
         if (newAdded.length) {
-            setAddedFiles((af) => [...af, ...newAdded]);
-            setEditImages((imgs) => [...imgs, ...newAdded.map((a) => a.url)]);
+            setAddedFiles(af => [...af, ...newAdded]);
+            setEditImages(imgs => [...imgs, ...newAdded.map(a => a.url)]);
         }
         setPendingFiles(leftover);
     }, [pendingFiles, conflictFile, images, addedFiles]);
 
+    // Save all edits
     const handleSave = async () => {
+        // Save images (local paths or dropped files)
         for (const a of addedFiles) {
             const p = (a.file as any).path;
             const source = p ?? a.url;
             await window.electronAPI.saveModelImage(modelHash, source);
         }
 
-        const oldSet = new Set(tags),
-            newSet = new Set(editTags);
-        const toAdd = editTags.filter((t) => !oldSet.has(t));
-        const toRemove = tags.filter((t) => !newSet.has(t));
+        // Tags diff & update
+        const oldSet = new Set(tags), newSet = new Set(editTags);
+        const toAdd = editTags.filter(t => !oldSet.has(t));
+        const toRemove = tags.filter(t => !newSet.has(t));
         const updated = {
             ...model,
             ...editFields,
             tags: editTags,
             notes: editNote,
             model_hash: modelHash,
-            model_name: editFields.model_name || model?.model_name || model?.file_name || '',
+            model_name: editFields.model_name || model?.model_name || model?.file_name || ''
         };
         await window.electronAPI.updateModel({
             model: updated,
             tagsToAdd: toAdd,
             tagsToRemove: toRemove,
-            userNote: editNote,
+            userNote: editNote
         });
 
+        // Reload state
         setIsEditing(false);
         const imgs = (await window.electronAPI.getModelImages(modelHash)).filter(Boolean);
         setImages(imgs);
@@ -220,81 +299,80 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
         }
     };
 
+    // Delete an image
     const handleDelete = async (url: string) => {
-        const idx = addedFiles.findIndex((a) => a.url === url);
+        const idx = addedFiles.findIndex(a => a.url === url);
         if (idx >= 0) {
-            setAddedFiles((af) => af.filter((_, i) => i !== idx));
+            setAddedFiles(af => af.filter((_, i) => i !== idx));
         } else {
             const p = url.startsWith('file://') ? url.slice(7) : url;
             const name = getFileName(p);
             await (window.electronAPI as any).deleteModelImage(modelHash, name);
-            setImages((imgs) => imgs.filter((i) => i !== url));
+            setImages(imgs => imgs.filter(i => i !== url));
         }
-        setEditImages((imgs) => imgs.filter((i) => i !== url));
+        setEditImages(imgs => imgs.filter(i => i !== url));
     };
 
+    // Tags
+    const handleAddTag = () => {
+        if (newTag && !editTags.includes(newTag)) setEditTags(ts => [...ts, newTag]);
+        setNewTag('');
+    };
+    const handleRemoveTag = (t: string) => setEditTags(ts => ts.filter(x => x !== t));
+
+    // Conflict actions
+    const conflictOverwrite = () => {
+        if (!conflictFile) return;
+        safeAddFile(conflictFile.file as File, conflictFile.saveName);
+        setConflictFile(null);
+    };
+    const conflictRename = () => {
+        if (!conflictFile) return;
+        safeAddFile(conflictFile.file as File, renameValue);
+        setConflictFile(null);
+    };
+    const conflictCancel = () => setConflictFile(null);
+
+    // Helpers
     const showName = model?.model_name || model?.file_name || modelHash;
     const civI = model?.civitai_model_id || model?.meta?.civitai_model_id;
     const civUrl = civI ? `https://civitai.com/models/${civI}` : model?.civitai_url;
+    const renderHtml = (html: string) => (
+        <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: html }} />
+    );
 
+    // Active image src for full-viewer
     const activeSrc = useMemo(() => {
         if (modalImageIdx === null) return undefined;
         const arr = isEditing ? editImages : images;
         return arr[modalImageIdx];
     }, [modalImageIdx, isEditing, editImages, images]);
 
-    // Model-level flags (global and local)
-    const nsfwFromIndex = nsfwIndex.getModel(model?.model_hash);
-    const nsfwFromFields =
-        (typeof (model as any)?.nsfw === 'boolean' && (model as any).nsfw) ||
-        (String((model as any)?.rating ?? (model as any)?.safety ?? '')
-            .toLowerCase()
-            .match(/explicit|nsfw|r-?18|xxx|18\+/) != null) ||
-        undefined;
-
-    // Tri-state model hint
-    const nsfwHintModel = [localModelFlag, nsfwFromIndex, nsfwFromFields].some((v) => v === true) ? true : undefined;
-    // Force mask if either local or global says NSFW
-    const forceMaskModel = !!(localModelFlag || nsfwFromIndex === true);
-
-    const [imgMenu, setImgMenu] = useState<null | { x: number; y: number; src: string }>(null);
-    useEffect(() => {
-        if (!imgMenu) return;
-        const close = () => setImgMenu(null);
-        const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setImgMenu(null); };
-        // IMPORTANT: bubble-phase listeners so menu buttons' onClick fire reliably
-        window.addEventListener('click', close);
-        window.addEventListener('contextmenu', close);
-        window.addEventListener('keydown', onEsc);
-        return () => {
-            window.removeEventListener('click', close);
-            window.removeEventListener('contextmenu', close);
-            window.removeEventListener('keydown', onEsc);
-        };
-    }, [imgMenu]);
-
     return (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
             <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl w-full max-w-5xl min-w-[800px] p-8 max-h-[94vh] overflow-y-auto relative">
                 {/* Close */}
-                <button className="absolute top-4 right-6 text-2xl text-zinc-400 dark:text-zinc-200 hover:text-blue-600" onClick={onClose}>
-                    &times;
-                </button>
+                <button
+                    className="absolute top-4 right-6 text-2xl text-zinc-400 dark:text-zinc-200 hover:text-blue-600"
+                    onClick={onClose}
+                >&times;</button>
 
-                {/* Header */}
+                {/* Header & Controls */}
                 <div className="flex justify-between items-end mb-4 pr-12">
                     <div>
                         {isEditing ? (
                             <input
                                 className="text-2xl font-bold bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 border border-zinc-300 dark:border-zinc-700 rounded px-2 py-1"
                                 value={editFields.model_name}
-                                onChange={(e) => setEditFields((f: any) => ({ ...f, model_name: e.target.value }))}
+                                onChange={e => setEditFields((f: any) => ({ ...f, model_name: e.target.value }))}
                             />
                         ) : (
                             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{showName}</h2>
                         )}
                         {civI && (
-                            <span className="text-xs text-blue-700 dark:text-blue-200 bg-blue-100 dark:bg-blue-900 rounded px-2 py-1 ml-2">Civitai ID: {civI}</span>
+                            <span className="text-xs text-blue-700 dark:text-blue-200 bg-blue-100 dark:bg-blue-900 rounded px-2 py-1 ml-2">
+                Civitai ID: {civI}
+              </span>
                         )}
                     </div>
                     <div className="flex gap-2">
@@ -307,10 +385,7 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 <button onClick={handleSave} className="px-4 py-1 bg-green-600 text-white rounded flex items-center gap-1">
                                     <FaSave /> Save
                                 </button>
-                                <button
-                                    onClick={handleCancelEdit}
-                                    className="px-4 py-1 bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 rounded flex items-center gap-1"
-                                >
+                                <button onClick={handleCancelEdit} className="px-4 py-1 bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 rounded flex items-center gap-1">
                                     <FaTimes /> Cancel
                                 </button>
                             </>
@@ -336,8 +411,7 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 alt="Main"
                                 className="max-h-40 rounded shadow border"
                                 meta={model}
-                                nsfwHint={nsfwHintModel}
-                                forceMask={forceMaskModel}
+                                nsfwHint={resolveImageFlag(nsfwIndex.getImage, model.main_image_path) === true ? true : undefined}
                                 onContextMenu={(e) => {
                                     e.preventDefault();
                                     setImgMenu({ x: e.clientX, y: e.clientY, src: model.main_image_path });
@@ -349,7 +423,6 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 alt="Placeholder"
                                 className="max-h-40 w-full object-contain rounded shadow border bg-gray-100 dark:bg-zinc-800"
                                 nsfwHint={nsfwHintModel}
-                                forceMask={forceMaskModel}
                                 onContextMenu={(e) => {
                                     e.preventDefault();
                                     setImgMenu({ x: e.clientX, y: e.clientY, src: placeholderModel });
@@ -372,56 +445,46 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                 </div>
 
                 <div className="flex gap-8 flex-wrap mb-6">
-                    {/* Images column */}
+                    {/* Images & Tags Column */}
                     <div className="w-1/3 min-w-[180px]">
                         <div
                             className={`grid grid-cols-3 gap-2 ${
-                                isEditing ? (isDragActive ? 'border-2 border-blue-500 p-2' : 'border-2 border-dashed border-gray-400 p-2') : ''
+                                isEditing
+                                    ? isDragActive
+                                        ? 'border-2 border-blue-500 p-2'
+                                        : 'border-2 border-dashed border-gray-400 p-2'
+                                    : ''
                             }`}
-                            onDragOver={(e) => {
-                                if (isEditing) {
-                                    e.preventDefault();
-                                    setIsDragActive(true);
-                                }
-                            }}
+                            onDragOver={e => { if (isEditing) { e.preventDefault(); setIsDragActive(true); } }}
                             onDragLeave={() => isEditing && setIsDragActive(false)}
-                            onDrop={(e) => isEditing && handleDrop(e)}
+                            onDrop={e => isEditing && handleDrop(e)}
                         >
                             {(isEditing ? editImages : images).slice(0, 6).map((img, idx) =>
-                                img ? (
-                                    <div key={img} className="relative">
-                                        {(() => {
-                                            const src = img.startsWith('file://') ? img : `file://${img}`;
-                                            const norm = normalizeKey(src);
-                                            const imageFlag =
-                                                localImageFlags[norm] ?? resolveImageFlag(nsfwIndex.getImage, src);
-                                            const nsfwHint = imageFlag === true ? true : undefined;
-                                            const forceMask = imageFlag === true || forceMaskModel;
-
-                                            return (
-                                                <SafeImage
-                                                    src={src}
-                                                    alt="preview"
-                                                    className="rounded shadow cursor-pointer bg-zinc-100 dark:bg-zinc-800"
-                                                    onClick={() => setModalImageIdx(idx)}
-                                                    draggable={false}
-                                                    meta={{ fileName: img }}
-                                                    nsfwHint={nsfwHint}
-                                                    forceMask={forceMask}
-                                                    onContextMenu={(e) => {
-                                                        e.preventDefault();
-                                                        setImgMenu({ x: e.clientX, y: e.clientY, src: img });
-                                                    }}
-                                                />
-                                            );
-                                        })()}
-                                        {isEditing && (
-                                            <button className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1" onClick={() => handleDelete(img)}>
-                                                <FaTrash />
-                                            </button>
-                                        )}
-                                    </div>
-                                ) : null
+                                    img && (
+                                        <div key={img} className="relative">
+                                            <SafeImage
+                                                src={img.startsWith('file://') ? img : `file://${img}`}
+                                                alt="preview"
+                                                className="rounded shadow cursor-pointer bg-zinc-100 dark:bg-zinc-800"
+                                                onClick={() => setModalImageIdx(idx)}
+                                                draggable={false}
+                                                meta={{ fileName: img }}
+                                                nsfwHint={resolveImageFlag(nsfwIndex.getImage, img) === true ? true : undefined}
+                                                onContextMenu={(e) => {
+                                                    e.preventDefault();
+                                                    setImgMenu({ x: e.clientX, y: e.clientY, src: img });
+                                                }}
+                                            />
+                                            {isEditing && (
+                                                <button
+                                                    className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1"
+                                                    onClick={() => handleDelete(img)}
+                                                >
+                                                    <FaTrash />
+                                                </button>
+                                            )}
+                                        </div>
+                                    )
                             )}
                         </div>
 
@@ -431,48 +494,67 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 className="block w-full mt-2 px-2 py-1 bg-white dark:bg-zinc-900 text-gray-900 dark:text-gray-100 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                                 onClick={async () => {
                                     const paths: string[] = await window.electronAPI.openFileDialog({
-                                        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
-                                        properties: ['openFile', 'multiSelections'],
+                                        filters: [{ name: 'Images', extensions: ['png','jpg','jpeg','webp'] }],
+                                        properties: ['openFile','multiSelections']
                                     });
-                                    if (paths.length) {
-                                        const entries = paths.map((p) => ({
-                                            file: { path: p },
-                                            saveName: getFileName(p),
-                                            url: p.startsWith('file://') ? p : `file://${p}`,
-                                        }));
-                                        setAddedFiles((af) => [...af, ...entries]);
-                                        setEditImages((imgs) => [...imgs, ...entries.map((e) => e.url)]);
-                                    }
+                                    if (paths.length) addLocalFiles(paths);
                                 }}
                             >
                                 <FaPlus className="inline mr-1" /> Choose Images…
                             </button>
                         )}
 
-                        <div className="text-xs mt-2 text-gray-400 dark:text-gray-200">{(isEditing ? editImages : images).length} images stored</div>
+                        <div className="text-xs mt-2 text-gray-400 dark:text-gray-200">
+                            {(isEditing ? editImages : images).length} images stored
+                        </div>
+
+                        {/* Tags */}
+                        <div className="mt-4">
+                            <span className="font-semibold text-gray-800 dark:text-gray-100">Tags:</span>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {(isEditing ? editTags : tags).map(tag => (
+                                    <span key={tag} className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 px-2 py-1 rounded flex items-center gap-1">
+                    {tag}
+                                        {isEditing && (
+                                            <button onClick={() => handleRemoveTag(tag)} className="text-red-400 dark:text-red-300">&times;</button>
+                                        )}
+                  </span>
+                                ))}
+                                {isEditing && (
+                                    <>
+                                        <input
+                                            value={newTag}
+                                            onChange={e => setNewTag(e.target.value)}
+                                            placeholder="Add tag"
+                                            className="border rounded px-2 py-1 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                                            onKeyDown={e => e.key==='Enter' && handleAddTag()}
+                                        />
+                                        <button onClick={handleAddTag} className="bg-blue-600 text-white px-2 py-1 rounded">
+                                            <FaPlus size={12}/>
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
-                    {/* Right pane (prompts / info) – unchanged */}
+                    {/* Prompts, File info & Links */}
                     <div className="flex-1 min-w-[240px]">
                         <div className="mb-2 text-sm text-gray-700 dark:text-gray-100">
-                            <div>
-                                <strong>Hash:</strong> <span className="font-mono">{modelHash}</span>
-                            </div>
+                            <div><strong>Hash:</strong> <span className="font-mono">{modelHash}</span></div>
                             <div className="text-xs text-zinc-500 dark:text-zinc-300 mt-1 truncate">
                                 <strong>Path:</strong> {model?.file_path}
                             </div>
                         </div>
                         <div className="flex gap-4 mb-4">
-                            {model?.civitai_url && (
-                                <button onClick={() => setShowOnlineUrl(model.civitai_url!)} className="px-3 py-1 bg-blue-600 text-white rounded text-xs flex items-center gap-1">
-                                    <FaExternalLinkAlt />
-                                    View on Civitai
+                            {civUrl && (
+                                <button onClick={() => setShowOnlineUrl(civUrl)} className="px-3 py-1 bg-blue-600 text-white rounded text-xs flex items-center gap-1">
+                                    <FaExternalLinkAlt/>View on Civitai
                                 </button>
                             )}
                             {model?.huggingface_url && (
                                 <button onClick={() => setShowOnlineUrl(model.huggingface_url!)} className="px-3 py-1 bg-violet-600 text-white rounded text-xs flex items-center gap-1">
-                                    <FaExternalLinkAlt />
-                                    View on HF
+                                    <FaExternalLinkAlt/>View on HF
                                 </button>
                             )}
                         </div>
@@ -485,10 +567,10 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                         rows={2}
                                         className="w-full p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
                                         value={editFields.prompt_positive}
-                                        onChange={(e) => setEditFields((f: any) => ({ ...f, prompt_positive: e.target.value }))}
+                                        onChange={e => setEditFields((f:any)=>( {...f, prompt_positive: e.target.value} ))}
                                     />
                                 ) : (
-                                    <pre className="whitespace-pre-wrap font-mono">{model?.prompt_positive || '–'}</pre>
+                                    <pre className="whitespace-pre-wrap font-mono">{model?.prompt_positive||'–'}</pre>
                                 )}
                             </div>
                             <div>
@@ -498,10 +580,10 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                         rows={2}
                                         className="w-full p-2 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
                                         value={editFields.prompt_negative}
-                                        onChange={(e) => setEditFields((f: any) => ({ ...f, prompt_negative: e.target.value }))}
+                                        onChange={e => setEditFields((f:any)=>( {...f, prompt_negative: e.target.value} ))}
                                     />
                                 ) : (
-                                    <pre className="whitespace-pre-wrap font-mono">{model?.prompt_negative || '–'}</pre>
+                                    <pre className="whitespace-pre-wrap font-mono">{model?.prompt_negative||'–'}</pre>
                                 )}
                             </div>
                             <div className="flex gap-4">
@@ -510,18 +592,14 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                     {isEditing ? (
                                         <select
                                             className="border px-2 py-1 rounded bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
-                                            value={editFields.model_type || ''}
-                                            onChange={(e) => setEditFields((f: any) => ({ ...f, model_type: e.target.value }))}
+                                            value={editFields.model_type||''}
+                                            onChange={e=>setEditFields((f:any)=>( {...f, model_type: e.target.value} ))}
                                         >
                                             <option value="">–</option>
-                                            {MODEL_TYPES.map((t) => (
-                                                <option key={t} value={t}>
-                                                    {t}
-                                                </option>
-                                            ))}
+                                            {MODEL_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
                                         </select>
                                     ) : (
-                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.model_type || '–'}</span>
+                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.model_type||'–'}</span>
                                     )}
                                 </div>
                                 <div>
@@ -529,11 +607,11 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                     {isEditing ? (
                                         <input
                                             className="border px-2 py-1 rounded bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
-                                            value={editFields.base_model || ''}
-                                            onChange={(e) => setEditFields((f: any) => ({ ...f, base_model: e.target.value }))}
+                                            value={editFields.base_model||''}
+                                            onChange={e=>setEditFields((f:any)=>( {...f, base_model: e.target.value} ))}
                                         />
                                     ) : (
-                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.base_model || '–'}</span>
+                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.base_model||'–'}</span>
                                     )}
                                 </div>
                                 <div>
@@ -541,11 +619,11 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                     {isEditing ? (
                                         <input
                                             className="border px-2 py-1 rounded bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
-                                            value={editFields.version || ''}
-                                            onChange={(e) => setEditFields((f: any) => ({ ...f, version: e.target.value }))}
+                                            value={editFields.version||''}
+                                            onChange={e=>setEditFields((f:any)=>( {...f, version: e.target.value} ))}
                                         />
                                     ) : (
-                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.version || '–'}</span>
+                                        <span className="px-2 py-1 bg-gray-200 dark:bg-zinc-800 rounded text-gray-800 dark:text-gray-200">{model?.version||'–'}</span>
                                     )}
                                 </div>
                             </div>
@@ -553,84 +631,134 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                     </div>
                 </div>
 
-                {/* Full-size viewer */}
+                {/* Notes */}
+                <div className={`mb-4 transition-all ${notesExpanded ? 'max-h-[400px]' : 'max-h-[120px]'}`}>
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="font-semibold text-gray-800 dark:text-gray-100">Notes:</span>
+                        <button
+                            className="text-xs text-blue-600 dark:text-blue-300 underline"
+                            onClick={()=>setNotesExpanded(x=>!x)}
+                        >{notesExpanded?'Collapse':'Expand'}</button>
+                    </div>
+                    <div className="border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 px-2 py-2 rounded overflow-auto">
+                        {isEditing ? (
+                            <textarea
+                                className="w-full p-2 bg-zinc-100 dark:bg-zinc-800 text-gray-900 dark:text-gray-100"
+                                rows={notesExpanded?6:2}
+                                value={editNote}
+                                onChange={e=>setEditNote(e.target.value)}
+                            />
+                        ) : userNote.trim().startsWith('<') ? (
+                            <div className="prose max-w-full" dangerouslySetInnerHTML={{ __html: userNote }} />
+                        ) : (
+                            <pre className="whitespace-pre-wrap text-gray-900 dark:text-gray-100">{userNote||'<No notes>'}</pre>
+                        )}
+                    </div>
+                </div>
+
+                {/* Full-size image carousel modal */}
                 {modalImageIdx !== null && (
                     <div
                         className="fixed inset-0 bg-black/75 flex items-center justify-center"
-                        onClick={() => setModalImageIdx(null)}
-                        onContextMenu={(e) => {
-                            // do not let the outer overlay eat the right-click
-                            e.stopPropagation();
-                        }}
+                        onClick={()=>setModalImageIdx(null)}
                     >
-                        <button className="absolute top-4 right-4 text-2xl text-white">
-                            <FaTimes />
-                        </button>
-
+                        <button className="absolute top-4 right-4 text-2xl text-white"><FaTimes/></button>
                         <button
                             className="absolute left-4 text-3xl text-white"
-                            onClick={(e) => {
+                            onClick={e=>{
                                 e.stopPropagation();
-                                setModalImageIdx((i) =>
-                                    i! > 0 ? i! - 1 : (isEditing ? editImages : images).length - 1
-                                );
+                                setModalImageIdx(i=>(i!>0?i!-1: (isEditing?editImages:images).length-1));
                             }}
                         >
-                            <FaChevronLeft />
+                            <FaChevronLeft/>
                         </button>
 
-                        {activeSrc && (() => {
-                            const norm = normalizeKey(activeSrc);
-                            const imgFlag =
-                                localImageFlags[norm] ?? resolveImageFlag(nsfwIndex.getImage, activeSrc);
-                            const nsfwHint = imgFlag === true ? true : undefined;
-                            const forceMask = imgFlag === true || forceMaskModel;
-
-                            return (
-                                // Wrapper catches right-click and opens our menu
-                                <div
-                                    className="contents"
-                                    onContextMenu={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        setImgMenu({ x: e.clientX, y: e.clientY, src: activeSrc });
-                                    }}
-                                >
-                                    <SafeImage
-                                        src={activeSrc}
-                                        alt="full"
-                                        className="max-h-[90vh] max-w-[90vw] rounded shadow-lg mx-auto block"
-                                        meta={{ model_hash: model.model_hash, ...model }}
-                                        nsfwHint={nsfwHint}
-                                        forceMask={forceMask}
-                                        withOverlay={false}
-                                        // Keep this too (belt & suspenders) — but wrapper guarantees it
-                                        onContextMenu={(e) => {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            setImgMenu({ x: e.clientX, y: e.clientY, src: activeSrc });
-                                        }}
-                                    />
-                                </div>
-                            );
-                        })()}
+                        {activeSrc && (
+                            <SafeImage
+                                src={activeSrc}
+                                alt="full"
+                                className="max-h-[90vh] max-w-[90vw] rounded shadow-lg mx-auto block"
+                                meta={{ fileName: activeSrc }}
+                                nsfwHint={resolveImageFlag(nsfwIndex.getImage, activeSrc) === true ? true : undefined}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setImgMenu({ x: e.clientX, y: e.clientY, src: activeSrc });
+                                }}
+                            />
+                        )}
 
                         <button
                             className="absolute right-4 text-3xl text-white"
-                            onClick={(e) => {
+                            onClick={e=>{
                                 e.stopPropagation();
-                                setModalImageIdx((i) =>
-                                    i! < (isEditing ? editImages : images).length - 1 ? i! + 1 : 0
-                                );
+                                setModalImageIdx(i=>(i!< (isEditing?editImages:images).length-1?i!+1:0));
                             }}
                         >
-                            <FaChevronRight />
+                            <FaChevronRight/>
+                        </button>
+
+                        {/* Prompt Viewer action */}
+                        <button
+                            onClick={() => {
+                                const selected = (isEditing ? editImages : images)[modalImageIdx];
+                                const p = selected.startsWith('file://') ? selected : `file://${selected}`;
+                                setCurrentPromptPath(p);
+                                setPromptModalOpen(true);
+                            }}
+                            className="absolute bottom-4 right-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        >
+                            Prompt Viewer
                         </button>
                     </div>
                 )}
 
+                {/* Conflict modal */}
+                {conflictFile && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+                        <div className="bg-white dark:bg-zinc-900 p-4 rounded shadow-lg max-w-sm">
+                            <p className="mb-2">“{conflictFile.saveName}” exists. Overwrite or rename?</p>
+                            <input
+                                value={renameValue}
+                                onChange={e=>setRenameValue(e.target.value)}
+                                className="w-full mb-2 border px-2 py-1 rounded"
+                            />
+                            <div className="flex justify-end gap-2">
+                                <button onClick={conflictCancel} className="px-2 py-1 rounded">Cancel</button>
+                                <button onClick={conflictOverwrite} className="px-2 py-1 bg-red-500 text-white rounded">Overwrite</button>
+                                <button onClick={conflictRename} className="px-2 py-1 bg-blue-500 text-white rounded">Rename</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
-                {/* Image context menu */}
+                {/* Online link modal */}
+                {showOnlineUrl && (
+                    <div className="fixed inset-0 bg-black/75 flex items-center justify-center">
+                        <div className="bg-white dark:bg-zinc-900 w-full h-full max-w-4xl max-h-[90vh] rounded-lg overflow-hidden relative">
+                            <button
+                                className="absolute top-2 right-2 text-2xl text-zinc-400 dark:text-zinc-200 hover:text-blue-600"
+                                onClick={()=>setShowOnlineUrl(null)}
+                            ><FaTimes/></button>
+                            <iframe
+                                src={showOnlineUrl}
+                                className="w-full h-full border-0"
+                                sandbox="allow-scripts allow-same-origin allow-popups"
+                            />
+                        </div>
+                    </div>
+                )}
+                {promptModalOpen && currentPromptPath && (
+                    <PromptViewerModal
+                        imagePath={currentPromptPath}
+                        onClose={() => {
+                            setPromptModalOpen(false);
+                            setCurrentPromptPath(null);
+                        }}
+                    />
+                )}
+
+                {/* Right-click image context menu (tiny inline, no CSS/layout changes) */}
                 {imgMenu && (
                     <div
                         style={{
@@ -640,21 +768,24 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                             zIndex: 9999,
                             background: document.documentElement.classList.contains('dark') ? '#111827' : '#ffffff',
                             color: document.documentElement.classList.contains('dark') ? '#E5E7EB' : '#111827',
-                            border: document.documentElement.classList.contains('dark') ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                            border: document.documentElement.classList.contains('dark')
+                                ? '1px solid rgba(255,255,255,0.12)'
+                                : '1px solid rgba(0,0,0,0.12)',
                             borderRadius: 8,
-                            boxShadow: document.documentElement.classList.contains('dark') ? '0 8px 24px rgba(0,0,0,0.55)' : '0 8px 24px rgba(0,0,0,0.18)',
+                            boxShadow: document.documentElement.classList.contains('dark')
+                                ? '0 8px 24px rgba(0,0,0,0.55)'
+                                : '0 8px 24px rgba(0,0,0,0.18)',
                             overflow: 'hidden',
-                            minWidth: 160,
+                            minWidth: 160
                         }}
-                        onClick={(e) => e.stopPropagation()}          // keep clicks inside
-                        onMouseDown={(e) => e.stopPropagation()}      // block mousedown so window listeners never see it
-                        onContextMenu={(e) => e.preventDefault()}     // prevent nested menus
+                        onClick={(e) => e.stopPropagation()}
+                        onContextMenu={(e) => e.preventDefault()}
                     >
                         <button
                             style={{ display: 'block', width: '100%', padding: '8px 12px', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13 }}
                             onClick={async () => {
                                 await nsfwIndex.markImage(normalizeKey(imgMenu.src), true);
-                                setLocalImage(imgMenu.src, true); // instant blur
+                                await nsfwIndex.refresh();
                                 setImgMenu(null);
                             }}
                         >
@@ -670,11 +801,13 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 background: 'transparent',
                                 cursor: 'pointer',
                                 fontSize: 13,
-                                borderTop: document.documentElement.classList.contains('dark') ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.06)',
+                                borderTop: document.documentElement.classList.contains('dark')
+                                    ? '1px solid rgba(255,255,255,0.06)'
+                                    : '1px solid rgba(0,0,0,0.06)'
                             }}
                             onClick={async () => {
                                 await nsfwIndex.markImage(normalizeKey(imgMenu.src), false);
-                                setLocalImage(imgMenu.src, false); // instant un-blur
+                                await nsfwIndex.refresh();
                                 setImgMenu(null);
                             }}
                         >
@@ -690,11 +823,13 @@ const ModelDetailsModal: React.FC<ModelDetailsModalProps> = ({ modelHash, onClos
                                 background: 'transparent',
                                 cursor: 'pointer',
                                 fontSize: 13,
-                                borderTop: document.documentElement.classList.contains('dark') ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.06)',
+                                borderTop: document.documentElement.classList.contains('dark')
+                                    ? '1px solid rgba(255,255,255,0.06)'
+                                    : '1px solid rgba(0,0,0,0.06)'
                             }}
                             onClick={async () => {
                                 await classifyAndIndexImage(imgMenu.src);
-                                setLocalImage(imgMenu.src, true);
+                                await nsfwIndex.refresh();
                                 setImgMenu(null);
                             }}
                         >

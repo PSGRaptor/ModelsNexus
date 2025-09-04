@@ -1,72 +1,87 @@
 // START OF FILE: main/nsfw-index.ts
-import fs from 'fs';
-import path from 'path';
 import { app } from 'electron';
+import * as fs from 'fs';
+import * as fsp from 'fs/promises';
+import * as path from 'path';
 
-export type NSFWIndex = {
-    models: Record<string, boolean>; // key: model_hash (lowercased)
-    images: Record<string, boolean>; // key: normalized file:// path (lowercased)
-};
+export type NsfwIndexMap = Record<string, boolean>;
+export type NsfwIndex = { images: NsfwIndexMap; models: NsfwIndexMap };
 
-const INDEX_PATH = () => path.join(app.getPath('userData'), 'nsfw-index.json');
+// Canonicalize: strip file://, decode, forward slashes, lowercase
+export function canonPath(p?: string): string {
+    if (!p) return '';
+    let raw = p.startsWith('file://') ? p.slice(7) : p;
+    try { raw = decodeURIComponent(raw); } catch {}
+    return raw.replace(/\\/g, '/').toLowerCase();
+}
 
-function readJsonSafe<T>(file: string, fallback: T): T {
+const FILE_NAME = 'nsfw-index.json';
+let cache: NsfwIndex | null = null;
+let filePath: string;
+
+function getFilePath() {
+    if (filePath) return filePath;
+    const dir = app.getPath('userData');
+    filePath = path.join(dir, FILE_NAME);
+    return filePath;
+}
+
+async function ensureLoaded(): Promise<NsfwIndex> {
+    if (cache) return cache;
+    const fp = getFilePath();
     try {
-        return JSON.parse(fs.readFileSync(file, 'utf-8'));
+        if (!fs.existsSync(fp)) {
+            cache = { images: {}, models: {} };
+            await fsp.writeFile(fp, JSON.stringify(cache, null, 2), 'utf8');
+            return cache;
+        }
+        const text = await fsp.readFile(fp, 'utf8');
+        const json = JSON.parse(text || '{}');
+
+        // Normalize everything on load
+        const outImages: NsfwIndexMap = {};
+        const outModels: NsfwIndexMap = {};
+        for (const [k, v] of Object.entries(json.images ?? {})) outImages[canonPath(k)] = !!v;
+        for (const [k, v] of Object.entries(json.models ?? {})) {
+            const key = String(k);
+            outModels[key] = !!v;
+            outModels[key.toLowerCase()] = !!v;
+        }
+        cache = { images: outImages, models: outModels };
     } catch {
-        return fallback;
+        cache = { images: {}, models: {} };
     }
+    return cache!;
 }
 
-function writeJsonSafe<T>(file: string, data: T) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
+async function persist(): Promise<void> {
+    if (!cache) return;
+    const fp = getFilePath();
+    const data: NsfwIndex = { images: cache.images, models: cache.models };
+    await fsp.writeFile(fp, JSON.stringify(data, null, 2), 'utf8');
 }
 
-export function loadIndex(): NSFWIndex {
-    return readJsonSafe<NSFWIndex>(INDEX_PATH(), { models: {}, images: {} });
+export async function getNsfwIndex(): Promise<NsfwIndex> {
+    return ensureLoaded();
 }
 
-export function setModelNSFW(hash: string, value: boolean): NSFWIndex {
-    const idx = loadIndex();
-    const key = String(hash || '').toLowerCase();
-    if (!key) return idx;
-    idx.models[key] = !!value;
-    writeJsonSafe(INDEX_PATH(), idx);
-    return idx;
+export async function setImageFlag(key: string, value: boolean): Promise<void> {
+    const idx = await ensureLoaded();
+    const c = canonPath(key);
+    idx.images[c] = !!value;
+    await persist();
 }
 
-export function normalizeImgKey(src: string): string {
-    if (!src) return '';
-    let v = src.trim();
-    // normalize local paths to file://
-    if (/^[a-zA-Z]:[\\/]/.test(v) || v.startsWith('/')) v = `file://${v}`;
-    return v.replace(/\\/g, '/').replace(/\/{2,}/g, '/').toLowerCase();
+export async function setModelFlag(hash: string, value: boolean): Promise<void> {
+    const idx = await ensureLoaded();
+    const h = (hash || '').trim();
+    idx.models[h] = !!value;
+    idx.models[h.toLowerCase()] = !!value;
+    await persist();
 }
 
-export function setImageNSFW(imgSrcOrPath: string, value: boolean): NSFWIndex {
-    const idx = loadIndex();
-    const key = normalizeImgKey(imgSrcOrPath);
-    if (!key) return idx;
-    idx.images[key] = !!value;
-    writeJsonSafe(INDEX_PATH(), idx);
-    return idx;
-}
-
-export function mergeNSFWBatch(batch: {
-    models?: Array<{ hash: string; nsfw: boolean }>;
-    images?: Array<{ src: string; nsfw: boolean }>;
-}): NSFWIndex {
-    const idx = loadIndex();
-    for (const m of batch.models ?? []) {
-        const key = String(m.hash || '').toLowerCase();
-        if (key) idx.models[key] = !!m.nsfw;
-    }
-    for (const i of batch.images ?? []) {
-        const key = normalizeImgKey(i.src);
-        if (key) idx.images[key] = !!i.nsfw;
-    }
-    writeJsonSafe(INDEX_PATH(), idx);
-    return idx;
+export async function clearNsfwIndex(): Promise<void> {
+    cache = { images: {}, models: {} };
+    await persist();
 }
 // END OF FILE: main/nsfw-index.ts

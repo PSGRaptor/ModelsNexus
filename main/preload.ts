@@ -1,8 +1,26 @@
 // File: main/preload.ts
-
 const { contextBridge, ipcRenderer } = require('electron');
 
+// --- NSFW key normalization helpers (preload) ---
+const canonPath = (p?: string): string => {
+    if (!p) return '';
+    let raw = p.startsWith('file://') ? p.slice(7) : p;
+    try { raw = decodeURIComponent(raw); } catch {}
+    return raw.replace(/\\/g, '/').toLowerCase();
+};
+const normalizeIndex = (idx: { images?: Record<string, boolean>; models?: Record<string, boolean> }) => {
+    const outImages: Record<string, boolean> = {};
+    const outModels: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(idx.images ?? {})) outImages[canonPath(k)] = !!v;
+    for (const [k, v] of Object.entries(idx.models ?? {})) {
+        outModels[k] = !!v;
+        outModels[k.toLowerCase?.() ?? k] = !!v;
+    }
+    return { images: outImages, models: outModels };
+};
+
 contextBridge.exposeInMainWorld('electronAPI', {
+
     getUserSettings: () => ipcRenderer.invoke('getUserSettings'),
     updateUserSettings: (patch: any) => ipcRenderer.invoke('updateUserSettings', patch),
     // Image/Model Metadata
@@ -54,13 +72,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPromptMetadata: (imagePath: string) => ipcRenderer.invoke('getPromptMetadata', imagePath),
     scanNewOrChanged: async (roots?: string[]) => ipcRenderer.invoke('scanNewOrChanged', roots),
 
-    // NSFW/SFW
-    nsfwGetIndex: () => ipcRenderer.invoke('nsfw:getIndex'),
-    nsfwSetModel: (hash: string, value: boolean) => ipcRenderer.invoke('nsfw:setModel', hash, value),
-    nsfwSetImage: (src: string, value: boolean) => ipcRenderer.invoke('nsfw:setImage', src, value),
+    // --- NSFW (normalized read/write) ---
+    nsfwGetIndex: async () => {
+        const raw = await ipcRenderer.invoke('nsfw:getIndex');
+        return normalizeIndex(raw || { images: {}, models: {} });
+    },
+    nsfwMarkImage: async (imageKey: string, value: boolean) => {
+        const key = canonPath(imageKey);
+        return ipcRenderer.invoke('nsfw:markImage', key, !!value);
+    },
+    nsfwSetImage: async (imageKey: string, value: boolean) => {
+        const key = canonPath(imageKey);
+        return ipcRenderer.invoke('nsfw:setImage', key, !!value);
+    },
+    nsfwMarkModel: async (modelHash: string, value: boolean) => {
+        const h = String(modelHash).trim();
+        return ipcRenderer.invoke('nsfw:markModel', h, !!value);
+    },
+    nsfwSetModel: async (modelHash: string, value: boolean) => {
+        const h = String(modelHash).trim();
+        return ipcRenderer.invoke('nsfw:setModel', h, !!value);
+    },
+
     nsfwMerge: (batch: { models?: { hash: string; nsfw: boolean }[]; images?: { src: string; nsfw: boolean }[] }) =>
         ipcRenderer.invoke('nsfw:merge', batch),
-
 
     scanFullRebuild: (scanRoots: string[]) =>
         ipcRenderer.invoke('scan:fullRebuild', scanRoots),

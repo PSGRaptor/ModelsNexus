@@ -1,4 +1,4 @@
-// START OF FILE: renderer/src/context/SettingsContext.tsx
+// renderer/src/context/SettingsContext.tsx
 import React, {
     createContext,
     useContext,
@@ -10,87 +10,74 @@ import React, {
 
 export type MaskStyle = 'blur' | 'pixelate';
 
-type Settings = {
+export type Settings = {
     sfwMode: boolean;
     maskStyle: MaskStyle;
-    maskAll: boolean;
-    maskUnknown: boolean;
-    blurAmount: number; // px
-    pixelGrid: number;  // px
-    [k: string]: any;
+    // allow future keys without type churn
+    [key: string]: any;
 };
 
 type Ctx = {
     settings: Settings;
+    /** Optimistic setter: updates React immediately, then persists via Electron */
     setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => Promise<void>;
+    /** Force-refresh from persisted settings */
     refresh: () => Promise<void>;
+};
+
+const DEFAULTS: Settings = {
+    sfwMode: false,
+    maskStyle: 'blur',
 };
 
 const SettingsContext = createContext<Ctx | null>(null);
 
-async function invokeGetUserSettings(): Promise<Partial<Settings> | undefined> {
-    const anyWin = window as any;
-    try {
-        if (anyWin.electronAPI?.getUserSettings) {
-            return await anyWin.electronAPI.getUserSettings();
-        }
-        if (anyWin.electron?.ipcRenderer?.invoke) {
-            return await anyWin.electron.ipcRenderer.invoke('getUserSettings');
-        }
-    } catch (err) {
-        console.warn('[SettingsContext] getUserSettings failed:', err);
-    }
-    return undefined;
-}
+export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+    const [settings, setSettings] = useState<Settings>(DEFAULTS);
 
-async function invokeUpdateUserSettings(
-    patch: Partial<Settings>
-): Promise<Partial<Settings> | undefined> {
-    const anyWin = window as any;
-    try {
-        if (anyWin.electronAPI?.updateUserSettings) {
-            return await anyWin.electronAPI.updateUserSettings(patch);
-        }
-        if (anyWin.electron?.ipcRenderer?.invoke) {
-            return await anyWin.electron.ipcRenderer.invoke('updateUserSettings', patch);
-        }
-    } catch (err) {
-        console.warn('[SettingsContext] updateUserSettings failed:', err);
-    }
-    return undefined;
-}
-
-export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const [settings, setSettings] = useState<Settings>({
-        sfwMode: true,
-        maskStyle: 'blur',
-        maskAll: false,
-        maskUnknown: false,
-        blurAmount: 12,
-        pixelGrid: 8,
-    });
-
-    const refresh = async () => {
-        const s = await invokeGetUserSettings();
-        if (s && typeof s === 'object') {
-            setSettings((prev) => ({ ...prev, ...s }));
-        }
-    };
-
+    // initial load
     useEffect(() => {
-        refresh();
+        let alive = true;
+        (async () => {
+            try {
+                const s = await (window as any)?.electronAPI?.getUserSettings?.();
+                if (!alive) return;
+                if (s && typeof s === 'object') {
+                    setSettings({ ...DEFAULTS, ...s });
+                }
+            } catch {
+                // ignore – keep defaults
+            }
+        })();
+        return () => { alive = false; };
     }, []);
 
-    const setSetting = async (key: keyof Settings, value: any) => {
-        const next = await invokeUpdateUserSettings({ [key]: value });
-        if (next && typeof next === 'object') {
-            setSettings((prev) => ({ ...prev, ...next }));
-        } else {
-            setSettings((prev) => ({ ...prev, [key]: value }));
+    const refresh = async () => {
+        try {
+            const s = await (window as any)?.electronAPI?.getUserSettings?.();
+            if (s && typeof s === 'object') {
+                setSettings((prev) => ({ ...prev, ...s }));
+            }
+        } catch {
+            // ignore refresh errors
         }
     };
 
-    const value = useMemo(() => ({ settings, setSetting, refresh }), [settings]);
+    const setSetting = async <K extends keyof Settings>(key: K, value: Settings[K]) => {
+        // 1) Optimistic local update so UI changes instantly
+        setSettings((prev) => ({ ...prev, [key]: value }));
+        // 2) Persist, then reconcile with whatever main returns
+        try {
+            const next = await (window as any)?.electronAPI?.updateUserSettings?.({ [key]: value });
+            if (next && typeof next === 'object') {
+                setSettings((prev) => ({ ...prev, ...next }));
+            }
+        } catch {
+            // keep optimistic value; user can re-open Settings to resync later
+        }
+    };
+
+    const value = useMemo<Ctx>(() => ({ settings, setSetting, refresh }), [settings]);
 
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 };
@@ -100,4 +87,3 @@ export const useSettings = () => {
     if (!ctx) throw new Error('useSettings must be used within SettingsProvider');
     return ctx;
 };
-// END OF FILE: renderer/src/context/SettingsContext.tsx

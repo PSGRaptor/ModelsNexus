@@ -34,28 +34,38 @@ const AppContent: React.FC = () => {
     } | null>(null);
     const [scanInProgress, setScanInProgress] = useState(false);
 
-    // Derived filtering for the grid
+    // Derived filtering for the grid (now supports "Favorites")
     const filteredModels = models
-        .filter(
-            (m) =>
-                (!typeFilter ||
-                    (m.model_type &&
-                        m.model_type.toLowerCase() === typeFilter.toLowerCase()) ||
-                    (m.file_name &&
-                        m.file_name.toLowerCase().includes(typeFilter.toLowerCase()))) &&
-                ((m.file_name ?? '')
-                        .toLowerCase()
-                        .includes(search.toLowerCase()) ||
-                    (m.model_type ?? '')
-                        .toLowerCase()
-                        .includes(search.toLowerCase()) ||
-                    (m.base_model ?? '').toLowerCase().includes(search.toLowerCase()))
-        )
+        .filter((m) => {
+            const q = (search || '').toLowerCase();
+
+            // Search filter (unchanged)
+            const matchesSearch =
+                (m.file_name ?? '').toLowerCase().includes(q) ||
+                (m.model_type ?? '').toLowerCase().includes(q) ||
+                (m.base_model ?? '').toLowerCase().includes(q);
+
+            // Type filter (add special-case for "favorites")
+            let matchesType = true;
+            if (typeFilter) {
+                const tf = typeFilter.toLowerCase();
+
+                if (tf === 'favorites') {
+                    // uses isFavoriteFlag below in this file
+                    matchesType = isFavoriteFlag(m.is_favorite);
+                } else {
+                    matchesType =
+                        (!!m.model_type && m.model_type.toLowerCase() === tf) ||
+                        (!!m.file_name && m.file_name.toLowerCase().includes(tf));
+                }
+            }
+
+            return matchesType && matchesSearch;
+        })
         .sort((a, b) =>
-            a.file_name.localeCompare(b.file_name, undefined, {
-                sensitivity: 'base',
-            })
+            a.file_name.localeCompare(b.file_name, undefined, { sensitivity: 'base' })
         );
+
 
     // Normalize model row into ModelInfo shape
     function mapRowToModelInfo(m: any): ModelInfo {
@@ -73,6 +83,10 @@ const AppContent: React.FC = () => {
             is_favorite: Number(m.is_favorite ?? 0),
             cover_image: cover,
         };
+    }
+
+    function isFavoriteFlag(v: any) {
+        return !!(typeof v === 'number' ? v === 1 : v);
     }
 
     // Paged load (fast first paint, then background hydrate)

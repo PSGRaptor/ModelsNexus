@@ -16,7 +16,7 @@ import { parseA1111Parameters } from './metadata/sdMetadata.js';
 import { getUseExternalPromptParser, setUseExternalPromptParser } from './config/settings.js';
 import { scanNewOrChanged } from './scanner/fastScan.js';
 import { loadSettings, patchSettings } from './settings.js';
-import { loadIndex, setModelNSFW, setImageNSFW, mergeNSFWBatch } from './nsfw-index.js';
+//import { loadIndex, setModelNSFW, setImageNSFW, mergeNSFWBatch } from './nsfw-index.js';
 import { registerNsfwIpc } from './ipc-nsfw.js';
 
 // import type { Tags } from 'exifreader'; // uncomment if you use it (and have noUnusedLocals off)

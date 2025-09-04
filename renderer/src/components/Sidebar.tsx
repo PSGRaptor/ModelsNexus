@@ -10,7 +10,7 @@ type SidebarProps = {
     onUpdateScan: () => void;          // fallback if ipcRenderer isn't exposed
     search: string;
     setSearch: (v: string) => void;
-    onTypeFilter: (type: string) => void;
+    onTypeFilter: (type: string) => void; // receives '', 'favorites', or a model type like 'SDXL'
 };
 
 const modelTypes = [
@@ -41,8 +41,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     }, [onKeyDown, onKeyUp]);
 
     const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        setSelectedType(e.target.value);
-        onTypeFilter(e.target.value);
+        const value = e.target.value;
+        setSelectedType(value);
+        onTypeFilter(value); // '' | 'favorites' | one of modelTypes
     };
 
     return (
@@ -79,6 +80,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         "
             >
                 <option value="">All Types</option>
+                {/* NEW: Favorites filter */}
+                <option value="favorites">Favorites</option>
                 {modelTypes.map(type => (
                     <option key={type} value={type}>
                         {type}
